@@ -32,11 +32,35 @@ def flow_split(percent, metric):
     return main_flow, min_flow
 
 
-def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server):
+def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, degree_matrix):
     """
     This function is used to deploy each job in first part without first job
+    :param reverse_server: server pool
+    :param dp_unit_num: amount of DP unit of this job
+    :param dp_unit_server: amount of server of each DP unit of this job
+    :param degree_matrix: a matrix stores links should exist between each ToR pair
     :return:
     """
+    local_server = []
+    for i in range(0, dp_unit_num):
+        vacant_index = np.argmax(reverse_server)
+        if dp_unit_server <= reverse_server[vacant_index]:
+            local_server.append([(vacant_index, dp_unit_server)])
+            reverse_server[vacant_index] -= dp_unit_server
+        else:
+            count_unit = dp_unit_server
+            local_server.append([])
+            while count_unit > 0:
+                vacant_index = np.argmax(reverse_server)
+                local_server[-1].append((vacant_index, reverse_server[vacant_index]))
+                count_unit -= reverse_server[vacant_index]
+                reverse_server[vacant_index] = 0
+    ring_matrix = np.zeros([len(degree_matrix), len(degree_matrix)], dtype=bool)
+    dp_tor = [local_server[i][0][0] for i in range(0, len(local_server))]
+
+    for i in range(0, len(degree_matrix)):
+        for j in range(i, len(degree_matrix)):
+            if
 
 
 def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_server_pool):
@@ -59,10 +83,13 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
     # split rate, which is used to judge mainstream flow and tine flow
     main, vice = flow_split(split_percent, traffic_metric)
     # separate jobs with split rate
+    all_reduce_matrix = [np.zeros([len(reverse_server_pool), len(reverse_server_pool)], dtype=bool)]
+    moe_matrix = [np.zeros([len(reverse_server_pool), len(reverse_server_pool)], dtype=bool)]
 
     # first part: deploy main flow:
     # first job deploys
 
+    local_info = []
     local_server = []
     for i in range(0, dp_unit_num_array[main[0]]):
         vacant_index = np.argmax(reverse_server_pool)
@@ -78,6 +105,22 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
                 local_server[-1].append((vacant_index, reverse_server_pool[vacant_index]))
                 count_unit -= reverse_server_pool[vacant_index]
                 reverse_server_pool[vacant_index] = 0
+
+    local_info.append(local_server)
+    # put the information first job into local information, notice that the index of this job is not the first.
+    dp_tor = [local_server[i][0][0] for i in range(0, len(local_server))]
+    for i in range(0, len(dp_tor) - 1):
+        all_reduce_matrix[0][dp_tor[i]][dp_tor[i + 1]] = 1
+        all_reduce_matrix[0][dp_tor[i + 1]][dp_tor[i]] = 1
+    all_reduce_matrix[0][dp_tor[0]][dp_tor[-1]] = 1
+    all_reduce_matrix[0][dp_tor[-1]][dp_tor[0]] = 1
+    for i in range(0, len(dp_tor)):
+        if len(local_server[i]) > 1:
+            dp_moe = [local_server[i][j][0] for j in range(0, len(local_server))]
+            for j in range(0, len(dp_moe) - 1):
+                moe_matrix[0][dp_moe[j]][dp_moe[j + 1]] = 1
+                moe_matrix[0][dp_moe[j] + 1][dp_moe[j]] = 1
+    # update link matrix
 
     # other job in main queue
 
