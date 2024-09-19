@@ -46,17 +46,32 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
     # an array store amount of server used to train each job
     traffic_metric = [dp_server_num[i] / batch_size[i] for i in range(0, len(dp_unit_num_array))]
     # an array store the traffic metric, which denotes the traffic size of each job
+    if sum(dp_server_num) > sum(reverse_server_pool):
+        return -1
     split_percent = 0.7
     # split rate, which is used to judge mainstream flow and tine flow
     main, vice = flow_split(split_percent, traffic_metric)
     # separate jobs with split rate
 
     # first part: deploy main flow:
-    for i in range(0, len(main)):
-        server_use = np.zeros(len(reverse_server_pool))
+    # first job deploys
+    server_use = np.zeros(len(reverse_server_pool))
+    for i in range(0, dp_unit_num_array[main[0]]):
         vacant_index = np.argmax(reverse_server_pool)
-        if dp_unit_server_array[main[i]] <= reverse_server_pool[vacant_index]:
-            server_use[vacant_index] += dp_unit_server_array[main[i]]
+        # find the index of target ToR
+        local_server = []
+        if dp_unit_server_array[main[0]] <= reverse_server_pool[vacant_index]:
+            server_use[vacant_index] += dp_unit_server_array[main[0]]
+            reverse_server_pool[vacant_index] -= dp_unit_server_array[main[0]]
+            local_server.append([dp_unit_server_array])
+        else:
+            count_unit = dp_unit_server_array[main[0]]
+            local_server.append([])
+            while count_unit > 0:
+                server_use[vacant_index] += reverse_server_pool[vacant_index]
+                reverse_server_pool[vacant_index] = 0
+                local_server[-1].append(vacant_index)
+                vacant_index = np.argmax(reverse_server_pool)
 
 
 
@@ -71,4 +86,3 @@ def server_deploy(som, lm, tm, dp_unit_num, dp_unit_server, traffic_size_array):
     :param traffic_size_array: an array stores traffic matrix of all jobs
     :return:
     """
-
