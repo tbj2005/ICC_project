@@ -32,6 +32,13 @@ def flow_split(percent, metric):
     return main_flow, min_flow
 
 
+def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server):
+    """
+    This function is used to deploy each job in first part without first job
+    :return:
+    """
+
+
 def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_server_pool):
     """
     This function is used to deploy the DP units of jobs before scheduling flows.
@@ -55,24 +62,24 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
 
     # first part: deploy main flow:
     # first job deploys
-    server_use = np.zeros(len(reverse_server_pool))
+
+    local_server = []
     for i in range(0, dp_unit_num_array[main[0]]):
         vacant_index = np.argmax(reverse_server_pool)
         # find the index of target ToR
-        local_server = []
         if dp_unit_server_array[main[0]] <= reverse_server_pool[vacant_index]:
-            server_use[vacant_index] += dp_unit_server_array[main[0]]
             reverse_server_pool[vacant_index] -= dp_unit_server_array[main[0]]
-            local_server.append([dp_unit_server_array])
+            local_server.append([(vacant_index, dp_unit_server_array[main[0]])])
         else:
             count_unit = dp_unit_server_array[main[0]]
             local_server.append([])
             while count_unit > 0:
-                server_use[vacant_index] += reverse_server_pool[vacant_index]
-                reverse_server_pool[vacant_index] = 0
-                local_server[-1].append(vacant_index)
                 vacant_index = np.argmax(reverse_server_pool)
+                local_server[-1].append((vacant_index, reverse_server_pool[vacant_index]))
+                count_unit -= reverse_server_pool[vacant_index]
+                reverse_server_pool[vacant_index] = 0
 
+    # other job in main queue
 
 
 def server_deploy(som, lm, tm, dp_unit_num, dp_unit_server, traffic_size_array):
