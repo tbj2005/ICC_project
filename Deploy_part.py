@@ -32,13 +32,21 @@ def flow_split(percent, metric):
     return main_flow, min_flow
 
 
-def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, degree_matrix):
+def find_sub_ring(matrix):
+    """
+    This function is used to find all rings in topo
+    :param matrix:
+    :return:
+    """
+
+
+def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix):
     """
     This function is used to deploy each job in first part without first job
     :param reverse_server: server pool
     :param dp_unit_num: amount of DP unit of this job
     :param dp_unit_server: amount of server of each DP unit of this job
-    :param degree_matrix: a matrix stores links should exist between each ToR pair
+    :param link_matrix: a matrix stores links should exist between each ToR pair
     :return:
     """
     local_server = []
@@ -55,12 +63,27 @@ def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, degree_matri
                 local_server[-1].append((vacant_index, reverse_server[vacant_index]))
                 count_unit -= reverse_server[vacant_index]
                 reverse_server[vacant_index] = 0
-    ring_matrix = np.zeros([len(degree_matrix), len(degree_matrix)], dtype=bool)
-    dp_tor = [local_server[i][0][0] for i in range(0, len(local_server))]
+    ring_matrix = np.zeros([len(link_matrix), len(link_matrix)], dtype=bool)
+    moe_matrix = np.zeros([len(link_matrix), len(link_matrix)], dtype=bool)
+    for i in range(0, len(local_server)):
+        if len(local_server[i]) > 1:
+            rep_link = np.zeros([len(link_matrix), len(link_matrix)], dtype=bool)
+            moe_dp = np.zeros(len(local_server[i]))
+            for j in range(0, moe_dp):
+                moe_dp[j] = local_server[i][j][0]
+            for p in moe_dp:
+                for q in moe_dp:
+                    if link_matrix[p][q] == 1:
+                        rep_link[p][q] = 1
+            degree_moe = np.sum(rep_link, axis=1)
+            for j in range(0, len(degree_moe)):
+                index = np.argmax(degree_moe)
+                if degree_moe[index] <= 2:
+                    break
+                else:
+                    relate_node = [k for k in range(0, len(degree_moe)) if rep_link[j][k] == 1]
+                    degree_relate_node = np.array([degree_moe[k] for k in relate_node])
 
-    for i in range(0, len(degree_matrix)):
-        for j in range(i, len(degree_matrix)):
-            if
 
 
 def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_server_pool):
