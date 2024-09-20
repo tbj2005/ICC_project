@@ -4,6 +4,7 @@ parameter as DP unit and so on. This thread will return timestamp of ending depl
 program, which will be used in other thread.
 """
 import numpy as np
+import copy
 
 
 def flow_split(percent, metric):
@@ -32,12 +33,77 @@ def flow_split(percent, metric):
     return main_flow, min_flow
 
 
+def pre_ring_degree(rep_link):
+    """
+    This function is used to make degree of each node in topology not greater than 2
+    :param rep_link: repeat link matrix.
+    :return:
+    """
+    degree = np.sum(rep_link, axis=1)
+    while 1:
+        index = np.argmax(degree)
+        if degree[index] <= 2:
+            break
+        else:
+            relate_node = [k for k in range(0, len(degree)) if rep_link[index][k] == 1]
+            degree_relate_node = np.array([degree[k] for k in relate_node])
+            max_index = np.argmax(degree_relate_node)
+            rep_link[index][relate_node[max_index]] = 0
+            rep_link[relate_node[max_index]][index] = 0
+            degree[index] -= 1
+            degree[relate_node[max_index]] -= 1
+    return rep_link
+
+
 def find_sub_ring(matrix):
     """
     This function is used to find all rings in topo
+    :param matrix: a topology may have some sub rings, while degree of each node in matrix is not bigger than 2
+    :return:
+    """
+    count_matrix = copy.deepcopy(matrix)
+    ring = []
+    test_ring = []
+    degree = np.sum(count_matrix, axis=1)
+    degree_two_node = [k for k in range(0, len(degree)) if degree[k] == 2]
+    while 1:
+        if len(degree_two_node) == 0:
+            break
+        else:
+            first_node = degree_two_node[0]
+            test_ring.append(first_node)
+            degree_two_node = [k for k in degree_two_node if k != first_node]
+            while 1:
+                next_node = np.argmax(count_matrix[test_ring[-1]])
+                count_matrix[next_node][test_ring[-1]] = 0
+                count_matrix[test_ring[-1]][next_node] = 0
+                if next_node == first_node:
+                    ring.append(test_ring)
+                    test_ring = []
+                    break
+                if next_node not in degree_two_node:
+                    test_ring = []
+                    break
+                degree_two_node = [k for k in degree_two_node if k != next_node]
+                test_ring.append(next_node)
+    return ring
+
+
+def ring(matrix):
+    """
+    This function is used to format a ring without sub ring
     :param matrix:
     :return:
     """
+    matrix = pre_ring_degree(matrix)
+    sub_ring = find_sub_ring(matrix)
+    all_ring = []
+    for i in range(0, len(sub_ring)):
+        all_ring += sub_ring
+    return all_ring
+
+
+def server_local(reverse_server, dp_unit_num, dp_unit_server)
 
 
 def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix):
@@ -50,6 +116,7 @@ def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix)
     :return:
     """
     local_server = []
+    traffic_metric = np.zeros(len(reverse_server))
     for i in range(0, dp_unit_num):
         vacant_index = np.argmax(reverse_server)
         if dp_unit_server <= reverse_server[vacant_index]:
@@ -63,11 +130,12 @@ def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix)
                 local_server[-1].append((vacant_index, reverse_server[vacant_index]))
                 count_unit -= reverse_server[vacant_index]
                 reverse_server[vacant_index] = 0
-    ring_matrix = np.zeros([len(link_matrix), len(link_matrix)], dtype=bool)
-    moe_matrix = np.zeros([len(link_matrix), len(link_matrix)], dtype=bool)
+    ring_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
+    moe_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
+    all_reduce_tor = []
     for i in range(0, len(local_server)):
         if len(local_server[i]) > 1:
-            rep_link = np.zeros([len(link_matrix), len(link_matrix)], dtype=bool)
+            rep_link = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
             moe_dp = np.zeros(len(local_server[i]))
             for j in range(0, moe_dp):
                 moe_dp[j] = local_server[i][j][0]
@@ -75,15 +143,23 @@ def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix)
                 for q in moe_dp:
                     if link_matrix[p][q] == 1:
                         rep_link[p][q] = 1
-            degree_moe = np.sum(rep_link, axis=1)
-            for j in range(0, len(degree_moe)):
-                index = np.argmax(degree_moe)
-                if degree_moe[index] <= 2:
-                    break
-                else:
-                    relate_node = [k for k in range(0, len(degree_moe)) if rep_link[j][k] == 1]
-                    degree_relate_node = np.array([degree_moe[k] for k in relate_node])
-
+            moe_ring = ring(rep_link)
+            for j in range(0, len(moe_ring) - 1):
+                moe_matrix[moe_ring[j]][moe_ring[j + 1]] = 1
+            all_reduce_tor.append(moe_ring[0])
+        else:
+            all_reduce_tor.append(local_server[i][0][0])
+    link_matrix += moe_matrix
+    rep_link = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
+    for p in all_reduce_tor:
+        for q in all_reduce_tor:
+            if link_matrix[p][q] == 1:
+                rep_link[p][q] = 1
+    dp_ring = ring(rep_link)
+    for i in range(0, len(dp_ring) - 1):
+        ring_matrix[dp_ring[i]][dp_ring[i + 1]] = 1
+    ring_matrix[dp_ring[-1]][0] = 1
+    return ring_matrix, moe_matrix
 
 
 def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_server_pool):
@@ -159,3 +235,8 @@ def server_deploy(som, lm, tm, dp_unit_num, dp_unit_server, traffic_size_array):
     :param traffic_size_array: an array stores traffic matrix of all jobs
     :return:
     """
+
+
+A = np.array([[0, 1, 1, 0, 0, 0], [1, 0, 1, 0, 0, 0], [1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1], [0, 0, 0, 1, 0, 1],
+              [0, 0, 0, 1, 1, 0]])
+print(find_sub_ring(A))
