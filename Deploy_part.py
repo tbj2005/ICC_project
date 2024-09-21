@@ -103,32 +103,32 @@ def ring(matrix):
     return all_ring
 
 
-def server_local(reverse_server, dp_unit_num, dp_unit_server)
-
-
-def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix):
+def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix, tor_traffic, traffic_metric):
     """
     This function is used to deploy each job in first part without first job
     :param reverse_server: server pool
     :param dp_unit_num: amount of DP unit of this job
     :param dp_unit_server: amount of server of each DP unit of this job
     :param link_matrix: a matrix stores links should exist between each ToR pair
+    :param tor_traffic: output traffic metric of each ToR
+    :param traffic_metric: traffic metric of this job's each DP unit
     :return:
     """
     local_server = []
-    traffic_metric = np.zeros(len(reverse_server))
     for i in range(0, dp_unit_num):
-        vacant_index = np.argmax(reverse_server)
+        vacant_index = np.argmin(tor_traffic)
         if dp_unit_server <= reverse_server[vacant_index]:
             local_server.append([(vacant_index, dp_unit_server)])
             reverse_server[vacant_index] -= dp_unit_server
+            tor_traffic[vacant_index] += traffic_metric
         else:
             count_unit = dp_unit_server
             local_server.append([])
             while count_unit > 0:
-                vacant_index = np.argmax(reverse_server)
+                vacant_index = np.argmin(tor_traffic)
                 local_server[-1].append((vacant_index, reverse_server[vacant_index]))
                 count_unit -= reverse_server[vacant_index]
+                tor_traffic[vacant_index] += traffic_metric * reverse_server[vacant_index] / dp_unit_server
                 reverse_server[vacant_index] = 0
     ring_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
     moe_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
@@ -175,6 +175,7 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
     dp_server_num = [dp_unit_server_array[i] * dp_unit_num_array[i] for i in range(0, len(dp_unit_num_array))]
     # an array store amount of server used to train each job
     traffic_metric = [dp_server_num[i] / batch_size[i] for i in range(0, len(dp_unit_num_array))]
+    tor_metric = np.zeros(len(reverse_server_pool))
     # an array store the traffic metric, which denotes the traffic size of each job
     if sum(dp_server_num) > sum(reverse_server_pool):
         return -1
@@ -191,11 +192,12 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
     local_info = []
     local_server = []
     for i in range(0, dp_unit_num_array[main[0]]):
-        vacant_index = np.argmax(reverse_server_pool)
+        vacant_index = np.argmax(tor_metric)
         # find the index of target ToR
         if dp_unit_server_array[main[0]] <= reverse_server_pool[vacant_index]:
             reverse_server_pool[vacant_index] -= dp_unit_server_array[main[0]]
             local_server.append([(vacant_index, dp_unit_server_array[main[0]])])
+            tor_metric[vacant_index] += dp_server_num[main[0]]
         else:
             count_unit = dp_unit_server_array[main[0]]
             local_server.append([])
