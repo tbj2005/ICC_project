@@ -62,7 +62,7 @@ def find_sub_ring(matrix):
     :return:
     """
     count_matrix = copy.deepcopy(matrix)
-    ring = []
+    output_ring = []
     test_ring = []
     degree = np.sum(count_matrix, axis=1)
     degree_two_node = [k for k in range(0, len(degree)) if degree[k] == 2]
@@ -78,7 +78,7 @@ def find_sub_ring(matrix):
                 count_matrix[next_node][test_ring[-1]] = 0
                 count_matrix[test_ring[-1]][next_node] = 0
                 if next_node == first_node:
-                    ring.append(test_ring)
+                    output_ring.append(test_ring)
                     test_ring = []
                     break
                 if next_node not in degree_two_node:
@@ -86,7 +86,7 @@ def find_sub_ring(matrix):
                     break
                 degree_two_node = [k for k in degree_two_node if k != next_node]
                 test_ring.append(next_node)
-    return ring
+    return output_ring
 
 
 def ring(matrix):
@@ -105,7 +105,7 @@ def ring(matrix):
 
 def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix, tor_traffic, traffic_metric):
     """
-    This function is used to deploy each job in first part without first job
+    This function is used to deploy each job in first part
     :param reverse_server: server pool
     :param dp_unit_num: amount of DP unit of this job
     :param dp_unit_server: amount of server of each DP unit of this job
@@ -125,41 +125,133 @@ def single_deploy_main(reverse_server, dp_unit_num, dp_unit_server, link_matrix,
             count_unit = dp_unit_server
             local_server.append([])
             while count_unit > 0:
-                vacant_index = np.argmin(tor_traffic)
-                local_server[-1].append((vacant_index, reverse_server[vacant_index]))
-                count_unit -= reverse_server[vacant_index]
-                tor_traffic[vacant_index] += traffic_metric * reverse_server[vacant_index] / dp_unit_server
-                reverse_server[vacant_index] = 0
-    ring_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
-    moe_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
+                test_tor_traffic = copy.deepcopy(tor_traffic)
+                max_traffic = np.max(test_tor_traffic)
+                for j in range(0, len(tor_traffic)):
+                    if reverse_server[j] == 0:
+                        test_tor_traffic[j] = max_traffic + 10
+                vacant_index = np.argmin(test_tor_traffic)
+
+                tor_deploy = min(count_unit, reverse_server[vacant_index])
+                local_server[-1].append((vacant_index, tor_deploy))
+                count_unit -= tor_deploy
+                tor_traffic[vacant_index] += traffic_metric * tor_deploy / dp_unit_server
+                reverse_server[vacant_index] -= tor_deploy
+    ring_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=int)
+    moe_matrix = np.zeros([len(reverse_server), len(reverse_server)], dtype=int)
     all_reduce_tor = []
     for i in range(0, len(local_server)):
         if len(local_server[i]) > 1:
-            rep_link = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
-            moe_dp = np.zeros(len(local_server[i]))
-            for j in range(0, moe_dp):
-                moe_dp[j] = local_server[i][j][0]
-            for p in moe_dp:
-                for q in moe_dp:
-                    if link_matrix[p][q] == 1:
-                        rep_link[p][q] = 1
-            moe_ring = ring(rep_link)
-            for j in range(0, len(moe_ring) - 1):
-                moe_matrix[moe_ring[j]][moe_ring[j + 1]] = 1
-            all_reduce_tor.append(moe_ring[0])
-        else:
-            all_reduce_tor.append(local_server[i][0][0])
-    link_matrix += moe_matrix
-    rep_link = np.zeros([len(reverse_server), len(reverse_server)], dtype=bool)
-    for p in all_reduce_tor:
-        for q in all_reduce_tor:
-            if link_matrix[p][q] == 1:
-                rep_link[p][q] = 1
-    dp_ring = ring(rep_link)
-    for i in range(0, len(dp_ring) - 1):
-        ring_matrix[dp_ring[i]][dp_ring[i + 1]] = 1
-    ring_matrix[dp_ring[-1]][0] = 1
-    return ring_matrix, moe_matrix
+            moe_dp = [local_server[i][j][0] for j in range(0, len(local_server[i]))]
+            for j in range(1, len(moe_dp)):
+                moe_matrix[moe_dp[0]][moe_dp[j]] = 1
+                moe_matrix[moe_dp[j]][moe_dp[0]] = 1
+        all_reduce_tor.append(local_server[i][0][0])
+    rep_link = np.zeros([len(reverse_server), len(reverse_server)], dtype=int)
+    for i in all_reduce_tor:
+        for j in all_reduce_tor:
+            if link_matrix[i][j] == 1:
+                rep_link[i][j] = 1
+    ring_topo = ring(rep_link)
+    for i in range(0, len(all_reduce_tor)):
+        if all_reduce_tor[i] not in ring_topo:
+            ring_topo.append(all_reduce_tor[i])
+    for i in range(0, len(ring_topo) - 1):
+        ring_matrix[ring_topo[i]][ring_topo[i + 1]] = 1
+        ring_matrix[ring_topo[i + 1]][ring_topo[i]] = 1
+    ring_matrix[ring_topo[0]][ring_topo[-1]] = 1
+    ring_matrix[ring_topo[-1]][ring_topo[0]] = 1
+    return ring_matrix, moe_matrix, local_server
+
+
+def var_count(ring_matrix, dp_unit_server, tor_traffic_metric, reverse_server, job_metric):
+    """
+    This function is used to count zhe var of one choice of ring topo
+    :param ring_matrix:
+    :param dp_unit_server:
+    :param tor_traffic_metric:
+    :param reverse_server:
+    :param job_metric:
+    :return:
+    """
+    local_server = []
+    sum_ring = np.sum(ring_matrix, axis=1)
+    ring_topo_choose = []
+    for i in range(0, len(sum_ring)):
+        if sum_ring[i] > 0:
+            ring_topo_choose.append(i)
+    reserve_unit = np.array([dp_unit_server for k in range(0, len(ring_topo_choose))])
+    test_tor_traffic_metric = copy.deepcopy(tor_traffic_metric)
+    for i in range(0, len(ring_topo_choose)):
+        local_server.append([])
+        tor_count = min(dp_unit_server, reverse_server[ring_topo_choose[i]])
+        local_server[i].append((tor_count, ring_topo_choose[i]))
+        reserve_unit[i] -= tor_count
+        test_tor_traffic_metric[ring_topo_choose[i]] += job_metric * tor_count / dp_unit_server
+    if np.sum(reserve_unit) <= 0:
+        return np.var(test_tor_traffic_metric), test_tor_traffic_metric, local_server
+    else:
+        for i in range(0, len(ring_topo_choose)):
+            while reserve_unit[i] > 0:
+                test2 = copy.deepcopy(test_tor_traffic_metric)
+                for j in range(0, len(test_tor_traffic_metric)):
+                    if reverse_server[j] == 0:
+                        test2[j] = np.max(test_tor_traffic_metric) + 10
+                index = np.argmin(test2)
+                tor_count = min(reverse_server[index], reserve_unit[i])
+                local_server[i].append((tor_count, index))
+                reserve_unit[i] -= tor_count
+                test_tor_traffic_metric[index] += job_metric * tor_count / dp_unit_server
+        return np.var(test_tor_traffic_metric), test_tor_traffic_metric, local_server
+
+
+def single_deploy_vice(ring_topo, dp_unit_server, dp_unit_num, tor_traffic_metric, reverse_server, job_metric):
+    """
+    This function is used to deploy each job in second part
+    :param ring_topo: ring topo set after first part
+    :param dp_unit_server:
+    :param dp_unit_num:
+    :param tor_traffic_metric:
+    :param reverse_server:
+    :param job_metric:
+    :return:
+    """
+    relate_ring = []
+    for i in range(0, ring_topo):
+        if np.sum(ring_topo[i]) == 2 * dp_unit_num:
+            relate_ring.append(ring_topo[i])
+    if len(relate_ring) == 0:
+        return [], [], [], []
+    relate_ring_var = []
+    relate_ring_metric = []
+    relate_ring_plan = []
+    for i in relate_ring:
+        relate_var, relate_metric, relate_local_server = var_count(i, dp_unit_server, tor_traffic_metric,
+                                                                   reverse_server, job_metric)
+        relate_ring_var.append(relate_var)
+        relate_ring_metric.append(relate_metric)
+        relate_ring_plan.append(relate_local_server)
+    index = np.argmin(relate_ring_var)
+    ring_matrix = np.zeros([len(reverse_server), len(reverse_server)])
+    moe_matrix = np.zeros([len(reverse_server), len(reverse_server)])
+    dp_tor = []
+    for i in range(0, len(relate_ring_plan[index])):
+        dp_tor.append(relate_ring_plan[index][i][0][0])
+        if len(relate_ring_plan[index][i]) > 1:
+            moe_tor = []
+            for j in range(0, len(relate_ring_plan[index][i])):
+                moe_tor.append(relate_ring_plan[index][i][j][0])
+                reverse_server[relate_ring_plan[index][i][j][0]] -= reverse_server[relate_ring_plan[index][i][j][1]]
+            for j in range(1, len(moe_tor)):
+                moe_matrix[moe_tor[0]][moe_tor[j]] = 1
+                moe_matrix[moe_tor[j]][moe_tor[0]] = 1
+        reverse_server[relate_ring_plan[index][i][0][0]] -= reverse_server[relate_ring_plan[index][i][0][1]]
+    for i in range(0, len(dp_tor) - 1):
+        ring_matrix[dp_tor[i]][dp_tor[i + 1]] = 1
+        ring_matrix[dp_tor[i + 1]][dp_tor[i]] = 1
+    ring_matrix[dp_tor[0]][dp_tor[-1]] = 1
+    ring_matrix[dp_tor[-1]][dp_tor[0]] = 1
+    return relate_ring_plan[index], relate_ring_metric[index], ring_matrix, moe_matrix
 
 
 def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_server_pool):
@@ -175,7 +267,7 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
     dp_server_num = [dp_unit_server_array[i] * dp_unit_num_array[i] for i in range(0, len(dp_unit_num_array))]
     # an array store amount of server used to train each job
     traffic_metric = [dp_server_num[i] / batch_size[i] for i in range(0, len(dp_unit_num_array))]
-    tor_metric = np.zeros(len(reverse_server_pool))
+    tor_traffic_metric = np.zeros(len(reverse_server_pool))
     # an array store the traffic metric, which denotes the traffic size of each job
     if sum(dp_server_num) > sum(reverse_server_pool):
         return -1
@@ -185,45 +277,43 @@ def init_deploy(dp_unit_num_array, dp_unit_server_array, batch_size, reverse_ser
     # separate jobs with split rate
     all_reduce_matrix = [np.zeros([len(reverse_server_pool), len(reverse_server_pool)], dtype=bool)]
     moe_matrix = [np.zeros([len(reverse_server_pool), len(reverse_server_pool)], dtype=bool)]
-
-    # first part: deploy main flow:
-    # first job deploys
+    link_m = np.zeros([len(reverse_server_pool), len(reverse_server_pool)])
 
     local_info = []
-    local_server = []
-    for i in range(0, dp_unit_num_array[main[0]]):
-        vacant_index = np.argmax(tor_metric)
-        # find the index of target ToR
-        if dp_unit_server_array[main[0]] <= reverse_server_pool[vacant_index]:
-            reverse_server_pool[vacant_index] -= dp_unit_server_array[main[0]]
-            local_server.append([(vacant_index, dp_unit_server_array[main[0]])])
-            tor_metric[vacant_index] += dp_server_num[main[0]]
+    # first part: deploy main flow:
+
+    all_topo = []
+    for i in range(0, len(main)):
+        ring_topo, moe_topo, local_server = (
+            single_deploy_main(reverse_server_pool, dp_unit_num_array[main[i]], dp_unit_server_array[main[i]], link_m,
+                               tor_traffic_metric, traffic_metric[main[i]]))
+
+        # update link matrix
+        local_info.append(local_server)
+        all_topo.append(ring_topo)
+        for p in range(0, len(reverse_server_pool)):
+            for q in range(0, len(reverse_server_pool)):
+                if ring_topo[p][q] == 1 or moe_topo[p][q] == 1:
+                    link_m[p][q] = 1
+
+    # second part: deploy vice flow:
+    for i in range(0, len(vice)):
+        local_server, traffic_metric, ring_topo, moe_topo = (
+            single_deploy_vice(all_topo, dp_unit_server_array[vice[i]], dp_unit_num_array[vice[i]],
+                               tor_traffic_metric, reverse_server_pool, traffic_metric[vice[i]]))
+        if len(local_server) == 0:
+            ring_topo, moe_topo, local_server = (
+                single_deploy_main(reverse_server_pool, dp_unit_num_array[main[i]], dp_unit_server_array[main[i]],
+                                   link_m, tor_traffic_metric, traffic_metric[main[i]]))
+            all_topo.append(ring_topo)
+            local_info.append(local_server)
+            for p in range(0, len(reverse_server_pool)):
+                for q in range(0, len(reverse_server_pool)):
+                    if ring_topo[p][q] == 1 or moe_topo[p][q] == 1:
+                        link_m[p][q] = 1
         else:
-            count_unit = dp_unit_server_array[main[0]]
-            local_server.append([])
-            while count_unit > 0:
-                vacant_index = np.argmax(reverse_server_pool)
-                local_server[-1].append((vacant_index, reverse_server_pool[vacant_index]))
-                count_unit -= reverse_server_pool[vacant_index]
-                reverse_server_pool[vacant_index] = 0
-
-    local_info.append(local_server)
-    # put the information first job into local information, notice that the index of this job is not the first.
-    dp_tor = [local_server[i][0][0] for i in range(0, len(local_server))]
-    for i in range(0, len(dp_tor) - 1):
-        all_reduce_matrix[0][dp_tor[i]][dp_tor[i + 1]] = 1
-        all_reduce_matrix[0][dp_tor[i + 1]][dp_tor[i]] = 1
-    all_reduce_matrix[0][dp_tor[0]][dp_tor[-1]] = 1
-    all_reduce_matrix[0][dp_tor[-1]][dp_tor[0]] = 1
-    for i in range(0, len(dp_tor)):
-        if len(local_server[i]) > 1:
-            dp_moe = [local_server[i][j][0] for j in range(0, len(local_server))]
-            for j in range(0, len(dp_moe) - 1):
-                moe_matrix[0][dp_moe[j]][dp_moe[j + 1]] = 1
-                moe_matrix[0][dp_moe[j] + 1][dp_moe[j]] = 1
-    # update link matrix
-
-    # other job in main queue
+            local_info.append(local_server)
+    return local_info
 
 
 def server_deploy(som, lm, tm, dp_unit_num, dp_unit_server, traffic_size_array):
@@ -237,8 +327,3 @@ def server_deploy(som, lm, tm, dp_unit_num, dp_unit_server, traffic_size_array):
     :param traffic_size_array: an array stores traffic matrix of all jobs
     :return:
     """
-
-
-A = np.array([[0, 1, 1, 0, 0, 0], [1, 0, 1, 0, 0, 0], [1, 1, 0, 0, 0, 0], [0, 0, 0, 0, 1, 1], [0, 0, 0, 1, 0, 1],
-              [0, 0, 0, 1, 1, 0]])
-print(find_sub_ring(A))
