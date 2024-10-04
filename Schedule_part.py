@@ -33,79 +33,161 @@ def topology_deploy(group_a, group_b, job_set, cluster_pod, unit_gpu):
     train_a_min, gpu_num_a = count_train_time(t_a, cluster_pod * unit_gpu - ps_b)
     train_b_min, gpu_num_b = count_train_time(t_b, cluster_pod * unit_gpu - ps_a)
     group_traffic, sum_traffic = traffic_count(job_set)
+    deploy_server(group_a)
 
 
-def deploy_server(group_a, group_b, unit_gpu_num, job_set, group_traffic_single_link, group_traffic_size, pod, pod_gpu
-                  , oxc_num):
+def deploy_server(group, unit_gpu_num, job_set, group_traffic_single_link, group_traffic_size, pod, pod_gpu
+                  , oxc_num, oxc_tor_bandwidth_rate):
     """
     各组并行单元的部署方案生成，产生拓扑，注意连接选择全双工，默认使用 INC，并行单元选择不拆分，剩余单 pod 服务器资源不够放就不放了
     :return:
     """
     reverse_gpu = np.array([pod_gpu for i in range(0, pod)])
-    output_traffic = np.zeros(pod)
-    group_a_traffic = [group_traffic_size[i] for i in group_a]
-    group_a_traffic_copy = copy.deepcopy(group_a_traffic)
-    group_b_traffic = [group_traffic_size[i] for i in group_b]
-    group_b_traffic_copy = copy.deepcopy(group_b_traffic)
+    # output_traffic = np.zeros(pod)
+    group_traffic = [group_traffic_size[i] for i in group]
+    group_traffic_copy = copy.deepcopy(group_traffic)
     undeploy_job = []
     link_bool_matrix = np.zeros([pod, pod])
     link_each_job = np.empty(len(job_set), dtype=None)
-    while np.max(group_a_traffic_copy) < 0:
-        job_index = group_a[np.argmax(group_b_traffic_copy)]
+    output_oxc = np.zeros(pod)
+    output_tor = np.zeros(pod)
+    oxc_matrix = np.zeros([pod, pod])
+    while np.max(group_traffic_copy) < 0:
+        job_index = group[np.argmax(group_traffic_copy)]
+        group_traffic_copy[job_index] = -1
+        single_output_oxc = np.zeros(pod)
+        single_output_tor = np.zeros(pod)
+        single_oxc_matrix = np.zeros([pod, pod])
         if job_set[job_index][3] == 0:
             node = []
             traffic = group_traffic_single_link[job_index]
             for i in range(0, job_set[job_index][4]):
-                pod_index = np.min(output_traffic)
-                if unit_gpu_num[job_index] <= reverse_gpu[pod_index]:
+                enough_pod = [j for j in range(0, pod) if unit_gpu_num[job_index] <= reverse_gpu[j]]
+                if len(enough_pod) > 0:
+                    port_time = [max(output_oxc[j] / oxc_tor_bandwidth_rate, output_tor[j]) for j in range(0, pod)]
+                    output_traffic_enough = [port_time[j] for j in range(0, pod)]
+                    pod_index = np.argmin(output_traffic_enough)
+                    if pod_index not in node:
+                        single_output_oxc[pod_index] += traffic
                     node.append(pod_index)
                     reverse_gpu[pod_index] -= unit_gpu_num[job_index]
-                    output_traffic[pod_index] += traffic
+                    # output_traffic[pod_index] += traffic
+                    single_output_tor[pod_index] += traffic
                 else:
+                    copy_node = []
                     for j in node:
                         reverse_gpu[j] += unit_gpu_num[job_index]
-                        output_traffic[pod_index] -= traffic
+                        # output_traffic[j] -= traffic
+                        single_output_tor[j] -= traffic
+                        if j not in copy_node:
+                            single_output_oxc[j] -= traffic
+                            break
+                        copy_node.append(j)
                     node = []
                     undeploy_job.append(job_index)
                     break
             if len(node) == 0:
                 continue
             else:
-                link_bool_matrix, link_job = connect_link_ring(link_bool_matrix, node, oxc_num)
+                node_set = list(set(node))
+                link_bool_matrix, link_job = connect_link_ring(link_bool_matrix, node_set, oxc_num)
                 link_each_job[job_index] = link_job
+                output_tor += single_output_tor
+                output_oxc += single_output_oxc
+                single_oxc_matrix = traffic * link_job
+                # output_traffic += single_oxc_matrix
         if job_set[job_index][3] == 1:
             link_job = np.zeros([pod, pod], dtype=bool)
             traffic = group_traffic_single_link[job_index]
-            ps_node = np.argmin(output_traffic)
+            ps_node = np.argmin(output_tor)
             worker_node = []
             ava_pod = []
             degree = np.sum(link_bool_matrix, axis=1)
             for i in range(0, pod):
                 if i == ps_node:
                     ava_pod.append(i)
-                elif link_bool_matrix[i][ps_node] == 0:
+                elif link_bool_matrix[i][ps_node] == 1:
                     ava_pod.append(i)
-                elif degree[i] < oxc_num or degree[ps_node] < oxc_num:
+                elif degree[i] < oxc_num and degree[ps_node] < oxc_num:
                     ava_pod.append(i)
-            output_traffic[ps_node] += job_set[job_index][4] * traffic
+            # output_traffic[ps_node] += job_set[job_index][4] * traffic
+            output_tor[ps_node] += job_set[job_index][4] * traffic
             for i in range(0, job_set[job_index][4]):
-                output_traffic_copy = [output_traffic[i] for i in ava_pod]
-                min_index = ava_pod[np.argmin(output_traffic_copy)]
-                if reverse_gpu[min_index] >= unit_gpu_num[job_index]:
-                    worker_node.append(min_index)
-                    output_traffic[min_index] -= traffic
+                ava_pod = [j for j in ava_pod if unit_gpu_num[job_index] <= reverse_gpu[j]]
+                if len(ava_pod) > 0:
+                    output_traffic_copy = [max(output_tor[i], output_oxc[i] / oxc_tor_bandwidth_rate) for i in ava_pod]
+                    min_index = ava_pod[np.argmin(output_traffic_copy)]
+                    # output_traffic[min_index] -= traffic
                     reverse_gpu[job_index] -= unit_gpu_num[job_index]
                     link_job[ps_node][min_index] = 1
                     link_job[min_index][ps_node] = 1
+                    if min_index not in worker_node and min_index != ps_node:
+                        output_oxc[min_index] += traffic
+                        output_tor[min_index] += traffic
+                    else:
+                        output_tor[min_index] += traffic
+
+                    worker_node.append(min_index)
+                    if link_bool_matrix[ps_node][min_index] == 0:
+                        degree[ps_node] += 1
+                        degree[min_index] += 1
+                        if degree[ps_node] == oxc_num:
+                            ava_pod = [j for j in ava_pod if link_bool_matrix[ps_node][j] == 1 or
+                                       link_job[ps_node][j] == 1]
                 else:
-                    output_traffic[ps_node] -= job_set[job_index][4] * traffic
+                    # output_traffic[ps_node] -= job_set[job_index][4] * traffic
+                    copy_node = []
                     for j in worker_node:
-                        output_traffic[j] -= traffic
+                        # output_traffic[j] -= traffic
+                        output_tor[j] -= traffic
                         reverse_gpu += unit_gpu_num[job_index]
+                        if j not in copy_node and j != ps_node:
+                            output_oxc[j] -= traffic
+                        copy_node.append(j)
                     link_job = np.zeros([pod, pod], dtype=bool)
+                    output_oxc[ps_node] -= job_set[job_index][4] * traffic
             link_each_job[job_index] = link_job
+            single_oxc_matrix = link_job * traffic
+            oxc_matrix += single_oxc_matrix
             link_bool_matrix += link_job
         if job_set[job_index][3] == 2:
+            node = []
+            link_job = np.zeros([pod, pod], dtype=bool)
+            for i in range(0, job_set[job_index][4]):
+                enough_pod = [j for j in range(0, pod) if unit_gpu_num[job_index] <= reverse_gpu[j]]
+                degree = np.sum(link_bool_matrix, axis=1)
+                del_node = set()
+                traffic = job_set[job_index][4] * group_traffic_single_link[job_index]
+                if len(node) > 0:
+                    for j in range(0, pod):
+                        for k in node:
+                            if link_bool_matrix[j][k] + link_job[j][k] == 0:
+                                if degree[j] == oxc_num or degree[k] == oxc_num:
+                                    del_node.add(j)
+                enough_pod = [j for j in enough_pod if j not in del_node]
+                if len(enough_pod) > 0:
+                    output_traffic_enough = [max(output_tor[j], output_oxc[j] / oxc_tor_bandwidth_rate)
+                                             for j in enough_pod]
+                    min_index = np.argmin(output_traffic_enough)
+                    # output_traffic[min_index] += traffic
+                    reverse_gpu[min_index] -= unit_gpu_num[job_index]
+                    for j in node:
+                        link_job[min_index][j] = 1
+                        link_job[j][min_index] = 1
+                    node.append(min_index)
+                else:
+                    for j in node:
+                        # output_traffic[j] -= traffic
+                        reverse_gpu[j] += unit_gpu_num[job_index]
+                    link_job = np.zeros([pod, pod])
+                    break
+            link_bool_matrix += link_job
+            single_oxc_matrix = link_job * group_traffic_single_link[job_index]
+            oxc_matrix += single_oxc_matrix
+            for i in node:
+                output_oxc[i] += (job_set[job_index][4] - 1) * group_traffic_single_link[job_index]
+                output_tor[i] += (job_set[job_index][4] - 1) * group_traffic_single_link[job_index]
+    return output_tor, oxc_matrix
 
 
 def connect_link_ring(link_matrix, node_deploy, oxc_port):
