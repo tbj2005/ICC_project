@@ -33,13 +33,14 @@ def topology_deploy(group_a, group_b, job_set, cluster_pod, unit_gpu):
     train_a_min, gpu_num_a = count_train_time(t_a, cluster_pod * unit_gpu - ps_b)
     train_b_min, gpu_num_b = count_train_time(t_b, cluster_pod * unit_gpu - ps_a)
     group_traffic, sum_traffic = traffic_count(job_set)
-    deploy_server(group_a)
+    unit_gpu_a = [int(gpu_num_a[i] / job_set[group_a[i]][4]) for i in range(0, len(group_a))]
+    deploy_server(group_a, unit_gpu_a, job_set, group_traffic, sum_traffic, )
 
 
 def deploy_server(group, unit_gpu_num, job_set, group_traffic_single_link, group_traffic_size, pod, pod_gpu
                   , oxc_num, oxc_tor_bandwidth_rate):
     """
-    各组并行单元的部署方案生成，产生拓扑，注意连接选择全双工，默认使用 INC，并行单元选择不拆分，剩余单 pod 服务器资源不够放就不放了
+    各组并行单元的部署方案生成，产生拓扑，注意连接选择全双工，默认使用 INC
     :return:
     """
     reverse_gpu = np.array([pod_gpu for i in range(0, pod)])
@@ -48,53 +49,55 @@ def deploy_server(group, unit_gpu_num, job_set, group_traffic_single_link, group
     group_traffic_copy = copy.deepcopy(group_traffic)
     undeploy_job = []
     link_bool_matrix = np.zeros([pod, pod])
-    link_each_job = np.empty(len(job_set), dtype=None)
+    # link_each_job = np.empty(len(job_set), dtype=None)
     output_oxc = np.zeros(pod)
     output_tor = np.zeros(pod)
     oxc_matrix = np.zeros([pod, pod])
     while np.max(group_traffic_copy) < 0:
         job_index = group[np.argmax(group_traffic_copy)]
-        group_traffic_copy[job_index] = -1
+        group_traffic_copy[np.argmax(group_traffic_copy)] = -1
         single_output_oxc = np.zeros(pod)
         single_output_tor = np.zeros(pod)
         single_oxc_matrix = np.zeros([pod, pod])
         if job_set[job_index][3] == 0:
             node = []
             traffic = group_traffic_single_link[job_index]
+            if np.sum(reverse_gpu) < job_set[job_index][4] * unit_gpu_num[job_index]:
+                undeploy_job.append(job_index)
+                continue
             for i in range(0, job_set[job_index][4]):
-                enough_pod = [j for j in range(0, pod) if unit_gpu_num[job_index] <= reverse_gpu[j]]
-                if len(enough_pod) > 0:
-                    port_time = [max(output_oxc[j] / oxc_tor_bandwidth_rate, output_tor[j]) for j in range(0, pod)]
-                    output_traffic_enough = [port_time[j] for j in range(0, pod)]
-                    pod_index = np.argmin(output_traffic_enough)
-                    if pod_index not in node:
-                        single_output_oxc[pod_index] += traffic
-                    node.append(pod_index)
-                    reverse_gpu[pod_index] -= unit_gpu_num[job_index]
-                    # output_traffic[pod_index] += traffic
-                    single_output_tor[pod_index] += traffic
-                else:
-                    copy_node = []
-                    for j in node:
-                        reverse_gpu[j] += unit_gpu_num[job_index]
-                        # output_traffic[j] -= traffic
-                        single_output_tor[j] -= traffic
-                        if j not in copy_node:
-                            single_output_oxc[j] -= traffic
-                            break
-                        copy_node.append(j)
-                    node = []
-                    undeploy_job.append(job_index)
-                    break
+                pod_time = [max(output_oxc[j] / oxc_tor_bandwidth_rate, output_tor[j]) for j in range(0, pod)]
+                rank_node = np.argmin(pod_time)
+                if rank_node not in node:
+                    output_oxc[rank_node] += traffic
+                rank_node_gpu = min(reverse_gpu[rank_node], unit_gpu_num[job_index])
+                copy_node = unit_gpu_num - rank_node_gpu
+                output_tor[rank_node] += rank_node_gpu * traffic / unit_gpu_num[job_index]
+                reverse_gpu[rank_node] -= rank_node_gpu
+                unit_node = [rank_node]
+                node.append(rank_node)
+                while copy_node > 0:
+                    sub_pod = [j for j in range(0, pod) if j not in unit_node]
+                    sub_pod_time = [max(output_oxc[j] / oxc_tor_bandwidth_rate, output_tor[j]) for j in range(0, pod)
+                                    if j not in unit_node]
+                    sub_node = sub_pod[np.argmin(sub_pod_time)]
+                    sub_node_gpu = min(reverse_gpu[sub_node], copy_node)
+                    copy_node -= sub_node_gpu
+                    output_oxc[sub_node] += sub_node_gpu * traffic / unit_gpu_num[job_index]
+                    output_tor[sub_node] += sub_node_gpu * traffic / unit_gpu_num[job_index]
+                    reverse_gpu[sub_node] -= sub_node_gpu
+                    single_oxc_matrix[rank_node][sub_node] += 0.5 * sub_node_gpu * traffic / unit_gpu_num[job_index]
+                    single_oxc_matrix[sub_node][rank_node] += 0.5 * sub_node_gpu * traffic / unit_gpu_num[job_index]
             if len(node) == 0:
                 continue
             else:
                 node_set = list(set(node))
                 link_bool_matrix, link_job = connect_link_ring(link_bool_matrix, node_set, oxc_num)
-                link_each_job[job_index] = link_job
+                # link_each_job[job_index] = link_job
                 output_tor += single_output_tor
                 output_oxc += single_output_oxc
-                single_oxc_matrix = traffic * link_job
+                single_oxc_matrix += 0.5 * traffic * link_job
+                oxc_matrix += single_oxc_matrix
                 # output_traffic += single_oxc_matrix
         if job_set[job_index][3] == 1:
             link_job = np.zeros([pod, pod], dtype=bool)
@@ -146,7 +149,7 @@ def deploy_server(group, unit_gpu_num, job_set, group_traffic_single_link, group
                         copy_node.append(j)
                     link_job = np.zeros([pod, pod], dtype=bool)
                     output_oxc[ps_node] -= job_set[job_index][4] * traffic
-            link_each_job[job_index] = link_job
+            # link_each_job[job_index] = link_job
             single_oxc_matrix = link_job * traffic
             oxc_matrix += single_oxc_matrix
             link_bool_matrix += link_job
