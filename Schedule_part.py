@@ -2,6 +2,8 @@ import copy
 import time
 
 import numpy as np
+
+
 # import random
 
 
@@ -24,6 +26,13 @@ def mountain_climb(job_set, pod_num, unit_gpu, per_oxc_port, b_tor, b_oxc, t_rec
     b = []
     list_t = []
     used_group = [a]
+    topo_bench = np.zeros([pod_num, pod_num])
+    for i in range(0, pod_num):
+        sub_group = int(i / 8)
+        for j in range(sub_group * 8, sub_group * 8):
+            if j != i:
+                topo_bench[i][j] += 1
+                topo_bench[j][i] += 1
     single_link, sum_traffic = traffic_count(job_set)
     train_time = [train_server(job_set[i][2], job_set[i][1], gpu_flops, gpu_usage, job_set[i][4] * job_set[i][5]) for i
                   in range(0, len(job_set))]
@@ -38,12 +47,14 @@ def mountain_climb(job_set, pod_num, unit_gpu, per_oxc_port, b_tor, b_oxc, t_rec
         t_iter = np.inf
     else:
         train_time_1 = [train_time[i] for i in range(0, len(train_time)) if job_set[i][3] != 1]
-        t_iter = t_iter_push_a + t_iter_pull_a + max(train_time) + max(train_time_1) + 0.2
+        t_iter = t_iter_push_a + t_iter_pull_a + max(train_time + [0]) + max(train_time_1 + [0]) + 0.2
     # print(t_iter)
     t_testbench = t_iter + 0
     list_t.append(t_testbench)
     k = 1
     flag = 0
+    traffic_a = np.zeros([pod_num, pod_num])
+    traffic_b = np.zeros([pod_num, pod_num])
     while 1:
         # print("iteration" + str(k))
         k += 1
@@ -120,7 +131,24 @@ def mountain_climb(job_set, pod_num, unit_gpu, per_oxc_port, b_tor, b_oxc, t_rec
             b += [a[0]]
             a = [j for j in a if j != a[0]]
         elif np.min(t_iter_list) > t_iter:
-            return t_iter, (t_testbench - t_iter) / t_testbench
+            traffic_push_a, tor_push_a, traffic_pull_a, tor_pull_a = (
+                traffic_topo(a, job_set, solution, pod_num, single_link))
+            traffic_push_b, tor_push_b, traffic_pull_b, tor_pull_b = (
+                traffic_topo(a, job_set, solution, pod_num, single_link))
+            t_push_a = time_count(topo_bench, b_oxc, traffic_push_a, pod_num, tor_push_a, b_tor)
+            t_push_b = time_count(topo_bench, b_oxc, traffic_push_b, pod_num, tor_push_b, b_tor)
+            t_pull_a = time_count(topo_bench, b_oxc, traffic_pull_a, pod_num, tor_pull_a, b_tor)
+            t_pull_b = time_count(topo_bench, b_oxc, traffic_pull_b, pod_num, tor_pull_b, b_tor)
+            train_a = max([0] + [train_time[j] for j in a])
+            train_a_agg = max([0] + [train_time[j] for j in a if job_set[j][3] != 1])
+            train_b = max([0] + [train_time[j] for j in b])
+            train_b_agg = max([0] + [train_time[j] for j in b if job_set[j][3] != 1])
+            t_iter_1 = max(t_pull_b, train_a)
+            t_iter_2 = max(t_push_a, train_b)
+            t_iter_3 = max(t_push_b, train_a_agg)
+            t_iter_4 = max(t_pull_a, train_b_agg)
+            t_iter_no_tpe = t_iter_1 + t_iter_2 + t_iter_3 + t_iter_4
+            return t_iter, t_testbench - 0.2, (t_testbench - 0.2 - t_iter) / (t_testbench - 0.2), t_iter_no_tpe, (t_iter_no_tpe - t_iter) / t_iter_no_tpe
         else:
             index = np.argmin(t_iter_list)
             if index in a:
@@ -140,8 +168,43 @@ def mountain_climb(job_set, pod_num, unit_gpu, per_oxc_port, b_tor, b_oxc, t_rec
                     if list_t_copy[j] != 0:
                         flag_l = 1
                 if flag_l == 0:
-                    return t_iter, (t_testbench - t_iter) / t_testbench
+                    traffic_push_a, tor_push_a, traffic_pull_a, tor_pull_a = (
+                        traffic_topo(a, job_set, solution, pod_num, single_link))
+                    traffic_push_b, tor_push_b, traffic_pull_b, tor_pull_b = (
+                        traffic_topo(a, job_set, solution, pod_num, single_link))
+                    traffic_all = traffic_push_a + traffic_push_b + traffic_pull_a + traffic_pull_b
+                    tor_all = tor_push_a + tor_push_b + tor_pull_a + tor_pull_b
+                    _, topo_no_tpe = oxc_count(traffic_all, tor_all, per_oxc_port, b_tor, b_oxc)
+                    t_push_a = time_count(topo_bench, b_oxc, traffic_push_a, pod_num, tor_push_a, b_tor)
+                    t_push_b = time_count(topo_bench, b_oxc, traffic_push_b, pod_num, tor_push_b, b_tor)
+                    t_pull_a = time_count(topo_bench, b_oxc, traffic_pull_a, pod_num, tor_pull_a, b_tor)
+                    t_pull_b = time_count(topo_bench, b_oxc, traffic_pull_b, pod_num, tor_pull_b, b_tor)
+                    train_a = max([0] + [train_time[j] for j in a])
+                    train_a_agg = max([0] + [train_time[j] for j in a if job_set[j][3] != 1])
+                    train_b = max([0] + [train_time[j] for j in b])
+                    train_b_agg = max([0] + [train_time[j] for j in b if job_set[j][3] != 1])
+                    t_iter_1 = max(t_pull_b, train_a)
+                    t_iter_2 = max(t_push_a, train_b)
+                    t_iter_3 = max(t_push_b, train_a_agg)
+                    t_iter_4 = max(t_pull_a, train_b_agg)
+                    t_iter_no_tpe = t_iter_1 + t_iter_2 + t_iter_3 + t_iter_4
+                    return t_iter, t_testbench - 0.2, (t_testbench - 0.2 - t_iter) / (
+                                t_testbench - 0.2), t_iter_no_tpe, (t_iter_no_tpe - t_iter) / t_iter_no_tpe
             list_t.append(t_iter)
+
+
+def time_count(topo, b_oxc, traffic, pod_num, tor_traffic, b_tor):
+    t = 0
+    for i in range(0, pod_num):
+        for j in range(0, pod_num):
+            if traffic[i][j] > 0:
+                if traffic[i][j] / b_oxc > t:
+                    t = traffic[i][j] / b_oxc
+    for i in range(0, pod_num):
+        if tor_traffic[i] > 0:
+            if tor_traffic[i] / b_tor > t:
+                t = tor_traffic[i] / b_tor
+    return t
 
 
 def adjoin_topo(topo_1, topo_2, oxc_port):
@@ -250,7 +313,7 @@ def traffic_topo(group, job_set, local_solution, pod_num, traffic_single_link):
                                 node_gpu * traffic_single_link[i] * (job_set[i][4] - 1) / job_set[i][5])
                         if k > 0:
                             single_oxc_traffic[node][unit_job[0][0]] += (
-                                node_gpu * traffic_single_link[i] * (job_set[i][4] - 1) / job_set[i][5])
+                                    node_gpu * traffic_single_link[i] * (job_set[i][4] - 1) / job_set[i][5])
                 for p in range(0, job_set[i][4]):
                     for q in range(0, job_set[i][4]):
                         if p != q:
@@ -385,7 +448,8 @@ def deploy_server(group, job_set, group_traffic_single_link, group_traffic_size,
             local_job = []
             # link_job = np.zeros([pod, pod], dtype=bool)
             output_traffic_copy = [max(output_tor[i], output_oxc[i] / oxc_tor_bandwidth_rate) if reverse_gpu[i]
-                                   > 0 else np.inf for i in
+                                                                                                 > 0 else np.inf for i
+                                   in
                                    range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
             traffic = group_traffic_single_link[job_index]
             ps_node = int(sub_pod_index * seg_pod_num + np.argmin(output_traffic_copy))
@@ -433,7 +497,8 @@ def deploy_server(group, job_set, group_traffic_single_link, group_traffic_size,
                     output_tor[rank_node] += traffic * rank_node_gpu / unit_gpu_num[job_index]
                 while copy_node > 0:
                     sub_traffic = [max(output_tor[j], output_oxc[j] / oxc_tor_bandwidth_rate) if reverse_gpu[j]
-                                   > 0 else np.inf for j in
+                                                                                                 > 0 else np.inf for j
+                                   in
                                    range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
                     sub_node = int(np.argmin(sub_traffic) + sub_pod_index * seg_pod_num)
                     # print('sub_node')
@@ -646,15 +711,19 @@ def traffic_count(job_set):
 
 
 def generate_job(job_num):
-    job_set = []
+    job_set1 = []
+    job_set2 = []
+    job_set3 = []
+    job_set4 = []
+    job_set5 = []
     for i in range(0, job_num):
         job_size = np.random.randint(0, 4)
         para = [2.46, 6.42, 21.2, 177.6]
         job_para = para[job_size]
-        context = 128
+        # context = 8
         # job_para = np.random.choice(np.array([1, 3, 8, 70]), p=np.array([0.25, 0.25, 0.25]))
-        # context = np.random.choice(np.array([8, 16, 32, 64, 128]), p=np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
-        job_type = np.random.choice(np.array([0, 1, 2]), p=np.array([0.4, 0.4, 0.2]))
+        context = np.random.choice(np.array([8, 16, 32, 64, 128]), p=np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
+        job_type = np.random.choice(np.array([0, 1, 2]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
         parallel = np.random.choice(np.array([4, 6, 8, 16]), p=np.array([0.25, 0.25, 0.25, 0.25]))
         # token_per_batch =
         # np.random.choice(np.array([128, 256, 512, 1024, 2048]), p=np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
@@ -666,15 +735,88 @@ def generate_job(job_num):
             parallel = np.random.choice(np.array([8, 16]), p=np.array([0.5, 0.5]))
         elif job_size == 0:
             unit_gpu = np.random.randint(50, 100)
-        job_info = (i, job_para, context, job_type, parallel, unit_gpu)
-        job_set.append(job_info)
-    return job_set
+        job_info_1 = [i, job_para, context, job_type, parallel, unit_gpu]
+        """
+        job_info_2 = [i, job_para, 16, job_type, parallel, unit_gpu]
+        job_info_3 = [i, job_para, 32, job_type, parallel, unit_gpu]
+        job_info_4 = [i, job_para, 64, job_type, parallel, unit_gpu]
+        job_info_5 = [i, job_para, 128, job_type, parallel, unit_gpu]
+        """
+        job_set1.append(job_info_1)
+        """
+        job_set2.append(job_info_2)
+        job_set3.append(job_info_3)
+        job_set4.append(job_info_4)
+        job_set5.append(job_info_5)
+        """
+    return job_set1
 
 
-for i in range(0, 50):
+for k in range(0, 6):
     job = generate_job(100)
+    job1 = job[0:20]
     start = time.time()
-    t = mountain_climb(job, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=2400, b_oxc=150, t_recon=0.1, gpu_usage=0.9,
-                       gpu_flops=82.6)
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
     end = time.time()
-    print(t, end - start)
+    print(t1, end - start)
+    job1 = job[0:40]
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    job1 = job[0:60]
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    job1 = job[0:80]
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    job1 = job[0:100]
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+"""
+job1 = job[0]
+job2 = job[1]
+job3 = job[2]
+job4 = job[3]
+for i in range(1, 3):
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=800 * i * 2, b_oxc=50 * i * 2, t_recon=0.1, gpu_usage=0.4,
+                       gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    start = time.time()
+    t1 = mountain_climb(job2, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=800 * i * 2, b_oxc=50 * i * 2, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    start = time.time()
+    t1 = mountain_climb(job3, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=800 * i, b_oxc=50 * i * 2, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    start = time.time()
+    t1 = mountain_climb(job4, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=800 * i, b_oxc=50 * i * 2, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    print('--------------------------------------')
+"""
