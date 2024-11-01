@@ -735,40 +735,24 @@ def generate_job(job_num):
             parallel = np.random.choice(np.array([8, 16]), p=np.array([0.5, 0.5]))
         elif job_size == 0:
             unit_gpu = np.random.randint(50, 100)
-        job_info_1 = [i, job_para, context, job_type, parallel, unit_gpu]
-        """
-        job_info_2 = [i, job_para, 16, job_type, parallel, unit_gpu]
-        job_info_3 = [i, job_para, 32, job_type, parallel, unit_gpu]
-        job_info_4 = [i, job_para, 64, job_type, parallel, unit_gpu]
-        job_info_5 = [i, job_para, 128, job_type, parallel, unit_gpu]
-        """
-        job_set1.append(job_info_1)
-        """
-        job_set2.append(job_info_2)
-        job_set3.append(job_info_3)
-        job_set4.append(job_info_4)
-        job_set5.append(job_info_5)
-        """
-    return job_set1
+        job_default = [i, job_para, 8, job_type, parallel, unit_gpu]
+        job_context_2 = [i, job_para, 16, job_type, parallel, unit_gpu]
+        job_context_3 = [i, job_para, 32, job_type, parallel, unit_gpu]
+        job_context_4 = [i, job_para, 64, job_type, parallel, unit_gpu]
+        job_context_5 = [i, job_para, 128, job_type, parallel, unit_gpu]
+
+        job_set1.append(job_default)
+        job_set2.append(job_context_2)
+        job_set3.append(job_context_3)
+        job_set4.append(job_context_4)
+        job_set5.append(job_context_5)
+    return job_set1, job_set2, job_set3, job_set4, job_set5
 
 
 for k in range(0, 6):
-    job = generate_job(100)
-    job1 = job[0:20]
-    start = time.time()
-    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
-                        gpu_usage=0.4,
-                        gpu_flops=26)
-    end = time.time()
-    print(t1, end - start)
-    job1 = job[0:40]
-    start = time.time()
-    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
-                        gpu_usage=0.4,
-                        gpu_flops=26)
-    end = time.time()
-    print(t1, end - start)
-    job1 = job[0:60]
+    info = generate_job(100)
+    job = info[0]
+    job1 = job[0:100]
     start = time.time()
     t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
                         gpu_usage=0.4,
@@ -782,9 +766,70 @@ for k in range(0, 6):
                         gpu_flops=26)
     end = time.time()
     print(t1, end - start)
-    job1 = job[0:100]
+    job1 = job[0:60]
     start = time.time()
     t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    job1 = job[0:40]
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    job1 = job[0:20]
+    start = time.time()
+    t1 = mountain_climb(job1, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    print("------job num----------")
+    start = time.time()
+    t1 = mountain_climb(info[1], pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    t1 = mountain_climb(info[2], pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    t1 = mountain_climb(info[3], pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    t1 = mountain_climb(info[4], pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=3200, b_oxc=200, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    print("-------context_length------")
+    start = time.time()
+    t1 = mountain_climb(job, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=800, b_oxc=50, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    start = time.time()
+    t1 = mountain_climb(job, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    start = time.time()
+    t1 = mountain_climb(job, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=2400, b_oxc=150, t_recon=0.1,
+                        gpu_usage=0.4,
+                        gpu_flops=26)
+    end = time.time()
+    print(t1, end - start)
+    start = time.time()
+    t1 = mountain_climb(job, pod_num=256, unit_gpu=2048, per_oxc_port=16, b_tor=4000, b_oxc=250, t_recon=0.1,
                         gpu_usage=0.4,
                         gpu_flops=26)
     end = time.time()
