@@ -1,5 +1,7 @@
 import copy
 import random
+import ILP_new
+import LP_relax
 import time
 from openpyxl import Workbook
 import numpy as np
@@ -231,26 +233,24 @@ def mountain_climb(solution, undeploy, job_set, pod_num, unit_gpu, per_oxc_port,
     :param per_oxc_port:
     :param unit_gpu:
     :param pod_num:
-    :param job_set: 业务六元组集合（业务索引，业务参数量，context length，通信模式， 并行度， 单个并行单元的 gpu 数目）, 通信模式分 ring, ps,
-    all_to_all 三类，分别使用0， 1， 2 表示
+    :param job_set: 业务六元组集合（业务索引，业务参数量，batch size，通信模式， 并行度， 单个并行单元的 gpu 数目， seq length）,
+    通信模式分 ring, ps 两类，分别使用0， 1表示
     :return:
     """
     list_t = []
     single_link, sum_traffic = traffic_count(job_set)
     train_time = [train_server(job_set[i][2], job_set[i][1], gpu_flops, gpu_usage, job_set[i][4] * job_set[i][5]) for i
                   in range(0, len(job_set))]
-    print("finish deploy")
     if len(undeploy) > 0:
         return -1, -1, -1, -1
     a, b, c = init_group_new(job_set, sum_traffic, solution, threshold)
+    print(a, b)
     t_iter = round_time(a, b, job_set, b_tor, b_oxc, solution, pod_num, single_link, per_oxc_port, train_time, t_recon)
-    print(t_iter)
     end_4 = time.time()
     t_testbench = t_iter + 0
     list_t.append(t_testbench)
     k = 0
     flag = 0
-    print("init")
     c_queue = np.zeros(len(job_set))
     for i in range(0, len(c_queue)):
         if i in a:
@@ -261,10 +261,10 @@ def mountain_climb(solution, undeploy, job_set, pod_num, unit_gpu, per_oxc_port,
     while 1:
         # print("iteration" + str(k))
         if k == iter_lim:
+            print(a, b)
             return t_iter, t_testbench, (t_testbench - t_iter) / t_testbench, end_4
         t_iter_list = np.zeros(len(a) + len(b))
         k += 1
-        print(k)
         c_queue_copy = copy.deepcopy(c_queue)
         c_change = []
         for i in range(0, change_num):
@@ -294,6 +294,7 @@ def mountain_climb(solution, undeploy, job_set, pod_num, unit_gpu, per_oxc_port,
             a = [j for j in a if j != a[0]]
         """
         if np.min(t_iter_list) > t_iter:
+            print(a, b)
             return t_iter, t_testbench, (t_testbench - t_iter) / t_testbench, end_4
         else:
             index = np.argmin(t_iter_list)
@@ -314,6 +315,7 @@ def mountain_climb(solution, undeploy, job_set, pod_num, unit_gpu, per_oxc_port,
                     if list_t_copy[j] != 0:
                         flag_l = 1
                 if flag_l == 0:
+                    print(a, b)
                     return t_iter, t_testbench, (t_testbench - t_iter) / t_testbench, end_4
             list_t.append(t_iter)
 
@@ -342,19 +344,16 @@ def mountain_pjs(solution, undeploy, job_set, pod_num, unit_gpu, per_oxc_port, b
     train_time = [train_server(job_set[i][2], job_set[i][1], gpu_flops, gpu_usage, job_set[i][4] * job_set[i][5]) for i
                   in range(0, len(job_set))]
     single_link, sum_traffic = traffic_count(job_set)
-    print("finish deploy")
     if len(undeploy) > 0:
         return -1, -1, -1, -1
     a, b, c = init_group_new(job_set, sum_traffic, solution, threshold)
     t_iter = round_time_pjs(a, b, job_set, b_tor, b_oxc, solution, pod_num, single_link, per_oxc_port, train_time,
                             t_recon)
-    print(t_iter)
     end_5 = time.time()
     t_testbench = t_iter + 0
     list_t.append(t_testbench)
     k = 0
     flag = 0
-    print("init")
     c_queue = np.zeros(len(job_set))
     for i in range(0, len(c_queue)):
         if i in a:
@@ -368,7 +367,6 @@ def mountain_pjs(solution, undeploy, job_set, pod_num, unit_gpu, per_oxc_port, b
             return t_iter, t_testbench, (t_testbench - t_iter) / t_testbench, end_5
         t_iter_list = np.zeros(len(a) + len(b))
         k += 1
-        print(k)
         c_queue_copy = copy.deepcopy(c_queue)
         c_change = []
         for i in range(0, change_num):
@@ -591,52 +589,64 @@ def traffic_topo(group, job_set, local_solution, pod_num, traffic_single_link):
     return traffic_matrix_push, tor_traffic_push, traffic_matrix_pull, tor_traffic_pull
 
 
-def deploy_server(group, job_set, group_traffic_single_link, group_traffic_size, pod, pod_gpu, oxc_tor_bandwidth_rate,
-                  seg_pod_num):
+def deploy_server(group, job_set, pod, pod_gpu, seg_pod_num):
     local_solution = np.empty(len(group), dtype=object)
     reverse_gpu = np.array([pod_gpu for _ in range(0, pod)])
     seg_num = int(pod / seg_pod_num)
     seg_pod_reserve = np.array([seg_pod_num * pod_gpu for _ in range(0, seg_num)])
     unit_gpu_num = np.zeros(len(group))
+    fj = [0 for _ in range(len(job_set))]
+    ufj = [0 for _ in range(len(job_set))]
     for i1 in range(0, len(job_set)):
         unit_gpu_num[i1] = job_set[i1][5]
     undeploy = []
     for i1 in range(0, len(job_set)):
+        local_solution[i1] = [[], [0 for _ in range(pod)]]
         if job_set[i1][3] != 1:
+            ufj[i1] = 1
             available_seg = [n for n in range(0, seg_num) if seg_pod_reserve[n] >= unit_gpu_num[i1] * job_set[i1][4]]
             if len(available_seg) == 0:
                 undeploy.append(i1)
             seg_index = random.choice(available_seg)
             worker_node = []
             for j in range(0, job_set[i1][4]):
-                worker_node_unit = []
                 seg_reserve = reverse_gpu[int(seg_index * seg_pod_num): int(seg_index * seg_pod_num + seg_pod_num)]
                 max_index = np.argmax(seg_reserve) + seg_index * seg_pod_num
                 if reverse_gpu[max_index] < unit_gpu_num[i1]:
                     for i in range(0, len(worker_node)):
-                        reverse_gpu[worker_node[i][0][0]] += unit_gpu_num[i1]
+                        reverse_gpu[worker_node[i][0]] += unit_gpu_num[i1]
                         seg_pod_reserve[seg_index] += unit_gpu_num[i1]
                         undeploy.append(i1)
                     worker_node = []
                     break
-                worker_node_unit.append((max_index, unit_gpu_num[i1]))
                 seg_reserve[max_index - seg_index * seg_pod_num] -= unit_gpu_num[i1]
-                worker_node.append(worker_node_unit)
-            local_solution[i1] = worker_node
+                worker_node.append((max_index, unit_gpu_num[i1]))
+            if i1 in undeploy:
+                local_solution[i1][0] = -2
+                continue
+            local_solution[i1][0] = -1
+            for j in range(0, len(worker_node)):
+                local_solution[i1][1][worker_node[j][0]] += worker_node[j][1]
         else:
+            fj[i1] = 1
             available_seg = [n for n in range(0, seg_num) if
                              seg_pod_reserve[n] >= unit_gpu_num[i1] * job_set[i1][4] + 1]
             if len(available_seg) == 0:
                 undeploy.append(i1)
             seg_index = random.choice(available_seg)
             worker_node = []
-            for n in range(0, seg_pod_num):
-                if reverse_gpu[int(seg_index * seg_pod_num + n)] >= 1:
-                    worker_node.append((seg_index * seg_pod_num + n, 1))
-                    reverse_gpu[int(seg_index * seg_pod_num + n)] -= 1
-                    break
+            # for n in range(0, seg_pod_num):
+            seg_reserve_gpu = reverse_gpu[int(seg_index * seg_pod_num): int(seg_index * seg_pod_num) + seg_pod_num]
+            in_seg_index = np.argmax(seg_reserve_gpu)
+            local_solution[i1][0] = int(seg_index * seg_pod_num + in_seg_index)
+            reverse_gpu[int(seg_index * seg_pod_num + in_seg_index)] -= 1
+            worker_node.append((seg_index * seg_pod_num + in_seg_index, 1))
+            # if reverse_gpu[int(seg_index * seg_pod_num + n)] >= 1:
+            #     worker_node.append((seg_index * seg_pod_num + n, 1))
+            #     reverse_gpu[int(seg_index * seg_pod_num + n)] -= 1
+            #     local_solution[i1][0] = int(seg_index * seg_pod_num + n)
+            #     break
             for j in range(0, job_set[i1][4]):
-                worker_node_unit = []
                 seg_reserve = reverse_gpu[int(seg_index * seg_pod_num): int(seg_index * seg_pod_num + seg_pod_num)]
                 max_index = np.argmax(seg_reserve) + seg_index * seg_pod_num
                 if reverse_gpu[max_index] < unit_gpu_num[i1]:
@@ -645,257 +655,19 @@ def deploy_server(group, job_set, group_traffic_single_link, group_traffic_size,
                             reverse_gpu[worker_node[i][0]] += 1
                             seg_pod_reserve[seg_index] += 1
                             continue
-                        reverse_gpu[worker_node[i][0][0]] += unit_gpu_num[i1]
+                        reverse_gpu[worker_node[i][0]] += unit_gpu_num[i1]
                         seg_pod_reserve[seg_index] += unit_gpu_num[i1]
                         undeploy.append(i1)
                     worker_node = []
                     break
-                worker_node_unit.append((max_index, unit_gpu_num[i1]))
                 seg_reserve[max_index - seg_index * seg_pod_num] -= unit_gpu_num[i1]
-                worker_node.append(worker_node_unit)
-            local_solution[i1] = worker_node
-    return local_solution, undeploy
-
-
-"""
-def deploy_server(group, job_set, group_traffic_single_link, group_traffic_size, pod, pod_gpu, oxc_tor_bandwidth_rate,
-                  seg_pod_num):
-    各组并行单元的部署方案生成，产生拓扑，注意连接选择半双工，不使用INC。部署方案改为：将所有 pod 分小组，每个业务只放进一个小组
-    :return:
-    local_solution = np.empty(len(group), dtype=object)
-    reverse_gpu = np.array([pod_gpu for _ in range(0, pod)])
-    # output_traffic = np.zeros(pod)
-    group_traffic = [group_traffic_size[i] for i in group]
-    group_traffic_copy = copy.deepcopy(group_traffic)
-    undeploy_job = []
-    seg_num = int(pod / seg_pod_num)
-    seg_traffic = np.zeros(seg_num)
-    seg_pod_reserve = np.array([seg_pod_num * pod_gpu for _ in range(0, seg_num)])
-    # link_bool_matrix = np.zeros([pod, pod])
-    # link_each_job = np.empty(len(job_set), dtype=None)
-    output_oxc = np.zeros(pod)
-    output_tor = np.zeros(pod)
-    # oxc_matrix = np.zeros([pod, pod])
-    unit_gpu_num = np.zeros(len(group))
-    for i in range(0, len(group)):
-        unit_gpu_num[i] = job_set[i][5]
-    while np.max(group_traffic_copy) > 0:
-        job_index = group[np.argmax(group_traffic_copy)]
-        seg_traffic_copy = copy.deepcopy(seg_traffic)
-        # print(seg_pod_reserve)
-        for i in range(0, seg_num):
-            if job_set[job_index][3] == 1:
-                if seg_pod_reserve[i] < job_set[job_index][4] * job_set[job_index][5] + 1:
-                    seg_traffic_copy[i] = np.inf
-            else:
-                if seg_pod_reserve[i] < job_set[job_index][4] * job_set[job_index][5]:
-                    seg_traffic_copy[i] = np.inf
-        if min(seg_traffic_copy) == np.inf:
-            undeploy_job.append(job_index)
-            local_solution[job_index] = []
-            group_traffic_copy[np.argmax(group_traffic_copy)] = -1
-            continue
-        sub_pod_index = int(np.argmin(seg_traffic_copy))
-        # print(job_index, seg_traffic_copy, sub_pod_index, np.argmin(seg_traffic_copy))
-        group_traffic_copy[np.argmax(group_traffic_copy)] = -1
-        # single_output_oxc = np.zeros(pod)
-        # single_output_tor = np.zeros(pod)
-        # if np.sum(reverse_gpu) < job_set[job_index][4] * unit_gpu_num[job_index]:
-        # single_oxc_matrix = np.zeros([pod, pod])
-        if job_set[job_index][3] == 0:
-            local_job = []
-            node = []
-            traffic = group_traffic_single_link[job_index]
-            for i in range(0, job_set[job_index][4]):
-                unit_local = []
-                output_traffic_copy = [max(output_oxc[j] / oxc_tor_bandwidth_rate, output_tor[j]) if reverse_gpu[j] > 0
-                                       else np.inf for j in
-                                       range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
-                for j in node:
-                    if reverse_gpu[j] > 0:
-                        output_traffic_copy[int(j - sub_pod_index * seg_pod_num)] = output_tor[j]
-                rank_node = int(np.argmin(output_traffic_copy) + sub_pod_index * seg_pod_num)
-                if rank_node not in node:
-                    output_oxc[rank_node] += traffic
-                rank_node_gpu = min(reverse_gpu[rank_node], unit_gpu_num[job_index])
-                copy_node = unit_gpu_num[job_index] - rank_node_gpu
-                output_tor[rank_node] += traffic * rank_node_gpu / unit_gpu_num[job_index]
-                reverse_gpu[rank_node] -= rank_node_gpu
-                # unit_node = [rank_node]
-                node.append(rank_node)
-                unit_local.append((rank_node, rank_node_gpu))
-                while copy_node > 0:
-                    # sub_pod = [j for j in range(0, pod) if j not in unit_node]
-                    sub_traffic = [max(output_oxc[j] / oxc_tor_bandwidth_rate, output_tor[j]) if reverse_gpu[j] > 0
-                                   else np.inf for j in
-                                   range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
-                    sub_node = int(np.argmin(sub_traffic) + sub_pod_index * seg_pod_num)
-                    sub_node_gpu = min(reverse_gpu[sub_node], copy_node)
-                    # print(sub_node, sub_node_gpu, copy_node, sub_traffic, reverse_gpu[int(sub_pod_index * seg_pod_num): int((sub_pod_index + 1) * seg_pod_num)])
-                    copy_node -= sub_node_gpu
-                    output_oxc[sub_node] += sub_node_gpu * traffic / unit_gpu_num[job_index]
-                    output_tor[sub_node] += sub_node_gpu * traffic / unit_gpu_num[job_index]
-                    seg_traffic[sub_pod_index] += sub_node_gpu * traffic / unit_gpu_num[job_index]
-                    reverse_gpu[sub_node] -= sub_node_gpu
-                    unit_local.append((sub_node, sub_node_gpu))
-                local_job.append(unit_local)
-                # print(job_set[job_index][4] * job_set[job_index][5])
-            seg_pod_reserve[sub_pod_index] -= job_set[job_index][4] * job_set[job_index][5]
-            seg_traffic[sub_pod_index] += group_traffic_size[job_index]
-            if len(node) == 0:
+                worker_node.append((max_index, unit_gpu_num[i1]))
+            if i1 in undeploy:
+                local_solution[i1][0] = -1
                 continue
-            else:
-                # node_set = list(set(node))
-                # link_bool_matrix, link_job = connect_link_ring(link_bool_matrix, node_set, oxc_num)
-                # link_each_job[job_index] = link_job
-                # output_tor += single_output_tor
-                # output_oxc += single_output_oxc
-                local_solution[job_index] = local_job
-                # single_oxc_matrix += 0.5 * traffic * link_job
-                # oxc_matrix += single_oxc_matrix
-                # output_traffic += single_oxc_matrix
-        if job_set[job_index][3] == 1:
-            local_job = []
-            # link_job = np.zeros([pod, pod], dtype=bool)
-            output_traffic_copy = [max(output_tor[i], output_oxc[i] / oxc_tor_bandwidth_rate) if reverse_gpu[i]
-                                                                                                 > 0 else np.inf for i
-                                   in
-                                   range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
-            traffic = group_traffic_single_link[job_index]
-            ps_node = int(sub_pod_index * seg_pod_num + np.argmin(output_traffic_copy))
-            local_job.append((ps_node, 1))
-            worker_node = []
-            # ava_pod = []
-            # degree = np.sum(link_bool_matrix, axis=1)
-        
-            for i in range(0, pod):
-                if i == ps_node:
-                    ava_pod.append(i)
-                elif link_bool_matrix[i][ps_node] == 1:
-                    ava_pod.append(i)
-                elif degree[i] < oxc_num and degree[ps_node] < oxc_num:
-                    ava_pod.append(i)
-            
-            # output_traffic[ps_node] += job_set[job_index][4] * traffic
-            output_tor[ps_node] += job_set[job_index][4] * traffic
-            # output_oxc[ps_node] += job_set[job_index][4] * traffic
-            reverse_gpu[ps_node] -= 1
-            for i in range(0, job_set[job_index][4]):
-                unit_local = []
-                # print('unit' + str(i + 1))
-                # ava_pod = [j for j in ava_pod if unit_gpu_num[job_index] <= reverse_gpu[j]]
-                output_traffic_copy = np.array([max(output_tor[j], output_oxc[j] / oxc_tor_bandwidth_rate) if
-                                                reverse_gpu[j] > job_set[job_index][5] else np.inf for j in
-                                                range(int(sub_pod_index * seg_pod_num),
-                                                      int((sub_pod_index + 1) * seg_pod_num))])
-                if reverse_gpu[ps_node] > 0:
-                    output_traffic_copy[int(ps_node - seg_pod_num * sub_pod_index)] = output_tor[ps_node]
-                rank_node = int(np.argmin(output_traffic_copy) + sub_pod_index * seg_pod_num)
-                # output_traffic[min_index] -= traffic
-                # link_job[ps_node][min_index] = 1
-                # link_job[min_index][ps_node] = 1
-                worker_node.append(rank_node)
-                rank_node_gpu = min(unit_gpu_num[job_index], reverse_gpu[rank_node])
-                reverse_gpu[rank_node] -= rank_node_gpu
-                unit_local.append((rank_node, rank_node_gpu))
-                copy_node = unit_gpu_num[job_index] - rank_node_gpu
-                if rank_node != ps_node:
-                    output_tor[rank_node] += traffic * rank_node_gpu / unit_gpu_num[job_index]
-                    output_oxc[rank_node] += traffic
-                    output_oxc[ps_node] += traffic
-                else:
-                    output_tor[rank_node] += traffic * rank_node_gpu / unit_gpu_num[job_index]
-                while copy_node > 0:
-                    sub_traffic = [max(output_tor[j], output_oxc[j] / oxc_tor_bandwidth_rate) if reverse_gpu[j]
-                                                                                                 > 0 else np.inf for j
-                                   in
-                                   range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
-                    sub_node = int(np.argmin(sub_traffic) + sub_pod_index * seg_pod_num)
-                    # print('sub_node')
-                    sub_node_gpu = min(reverse_gpu[sub_node], copy_node)
-                    # print(sub_node, sub_node_gpu, copy_node, sub_traffic)
-                    copy_node -= sub_node_gpu
-                    reverse_gpu[sub_node] -= sub_node_gpu
-                    output_oxc[rank_node] += traffic * sub_node_gpu / unit_gpu_num[job_index]
-                    output_tor[rank_node] += traffic * sub_node_gpu / unit_gpu_num[job_index]
-                    output_oxc[sub_node] += traffic * sub_node_gpu / unit_gpu_num[job_index]
-                    output_tor[sub_node] += traffic * sub_node_gpu / unit_gpu_num[job_index]
-                    seg_traffic[sub_pod_index] += traffic * sub_node_gpu / unit_gpu_num[job_index]
-                    unit_local.append((sub_node, sub_node_gpu))
-                local_job.append(unit_local)
-            local_solution[job_index] = local_job
-            seg_traffic[sub_pod_index] += group_traffic_size[job_index]
-            seg_pod_reserve[sub_pod_index] -= job_set[job_index][4] * unit_gpu_num[job_index] + 1
-            
-            if link_bool_matrix[ps_node][min_index] == 0:
-                degree[ps_node] += 1
-                degree[min_index] += 1
-                if degree[ps_node] == oxc_num:
-                    ava_pod = [j for j in ava_pod if link_bool_matrix[ps_node][j] == 1 or
-                               link_job[ps_node][j] == 1]
-            
-            # link_each_job[job_index] = link_job
-            # single_oxc_matrix = link_job * traffic
-            # oxc_matrix += single_oxc_matrix
-            # link_bool_matrix += link_job
-
-        if job_set[job_index][3] == 2:
-            node = []
-            # link_job = np.zeros([pod, pod], dtype=bool)
-            local_job = []
-            reverse_gpu_ep = [reverse_gpu[j] for j in
-                              range(int(sub_pod_index * seg_pod_num), int((sub_pod_index + 1) * seg_pod_num))]
-            for i in range(0, job_set[job_index][4]):
-                
-                enough_pod = [j for j in range(0, pod) if unit_gpu_num[job_index] <= reverse_gpu[j]]
-                degree = np.sum(link_bool_matrix, axis=1)
-                del_node = set()
-                traffic = job_set[job_index][4] * group_traffic_single_link[job_index]
-                if len(node) > 0:
-                    for j in range(0, pod):
-                        for k in node:
-                            if link_bool_matrix[j][k] + link_job[j][k] == 0:
-                                if degree[j] == oxc_num or degree[k] == oxc_num:
-                                    del_node.add(j)
-                enough_pod = [j for j in enough_pod if j not in del_node]
-                
-                unit_local = []
-                rank_node = int(np.argmax(reverse_gpu_ep) + sub_pod_index * seg_pod_num)
-                rank_node_gpu = min(reverse_gpu[rank_node], unit_gpu_num[job_index])
-                # output_traffic[min_index] += traffic
-                reverse_gpu[rank_node] -= rank_node_gpu
-                reverse_gpu_ep[int(rank_node - sub_pod_index * seg_pod_num)] -= rank_node_gpu
-                unit_local.append((rank_node, rank_node_gpu))
-                copy_node = unit_gpu_num[job_index] - rank_node_gpu
-                node.append(rank_node)
-                k = 0
-                while copy_node > 0:
-                    if k > 9:
-                        break
-                    k += 1
-                    sub_node = int(np.argmax(reverse_gpu_ep) + sub_pod_index * seg_pod_num)
-                    sub_node_gpu = min(copy_node, reverse_gpu[sub_node])
-                    reverse_gpu_ep[int(sub_node - sub_pod_index * seg_pod_num)] -= sub_node_gpu
-                    reverse_gpu[sub_node] -= sub_node_gpu
-                    seg_traffic[sub_pod_index] += (group_traffic_single_link[job_index] * (job_set[job_index][4] - 1) *
-                                                   sub_node_gpu / unit_gpu_num[job_index])
-                    # print(sub_node, sub_node_gpu, copy_node)
-                    unit_local.append((sub_node, sub_node_gpu))
-                    copy_node -= sub_node_gpu
-                local_job.append(unit_local)
-            if len(set(node)) > 1:
-                for i in set(node):
-                    output_oxc[i] += group_traffic_single_link[job_index] * (len(set(node)) - 1)
-            for i in range(0, len(local_job)):
-                for j in range(0, len(local_job[i])):
-                    output_tor[local_job[i][j][0]] += \
-                        (group_traffic_single_link[job_index] * (job_set[job_index][4] - 1) * local_job[i][j][1] /
-                         unit_gpu_num[job_index])
-            local_solution[job_index] = local_job
-            seg_traffic[sub_pod_index] += group_traffic_size[job_index]
-            seg_pod_reserve[sub_pod_index] -= job_set[job_index][4] * job_set[job_index][5]
-    return local_solution, undeploy_job
-"""
+            for j in range(1, len(worker_node)):
+                local_solution[i1][1][worker_node[j][0]] += worker_node[j][1]
+    return local_solution, undeploy, fj, ufj
 
 
 def connect_link_ring(link_matrix, single_traffic, local_job, job_info):
@@ -984,17 +756,26 @@ def count_train_time(t_list, gpu_available):
     return t_train, gpu_assign
 
 
-def train_server(context, model_parameter, flops, usage, gpu_num):
+def train_server(batch_size, seq_len, model_parameter, flops, usage, gpu_num):
     """
     业务单 GPU 训练用时
     :param gpu_num:
-    :param context: 每次迭代的文本长度
+    :param batch_size:
+    :param seq_len:
     :param model_parameter: 业务参数量
     :param flops: GPU 峰值 flops
     :param usage: GPU 利用率
     :return:
     """
-    return 8 * context * model_parameter / (flops * usage * gpu_num)
+    return 0.008 * batch_size * seq_len * model_parameter / (flops * usage * gpu_num)
+
+
+def job_set_train(job_set, flops, usage):
+    train_time_job = np.zeros(len(job_set))
+    for i in range(len(job_set)):
+        train_time_job[i] = (
+            train_server(job_set[i][2], job_set[i][6], job_set[i][1], flops, usage, job_set[i][4] * job_set[i][5]))
+    return train_time_job
 
 
 def traffic_count(job_set):
@@ -1014,312 +795,123 @@ def traffic_count(job_set):
             dp = job_set[i][4]
             traffic.append(job_set[i][1])
             sum_output_traffic.append(2 * dp * job_set[i][1])
-        if job_set[i][3] == 2:
-            ep = job_set[i][4]
-            traffic.append((job_set[i][2] * 4) * 1e-6 / (ep * ep))
-            sum_output_traffic.append((ep - 1) * job_set[i][2] * 1e-6 / ep)
+        # if job_set[i][3] == 2:
+        #     ep = job_set[i][4]
+        #     traffic.append((job_set[i][2] * 4) * 1e-6 / (ep * ep))
+        #     sum_output_traffic.append((ep - 1) * job_set[i][2] * 1e-6 / ep)
     return traffic, sum_output_traffic
 
 
 def generate_job(job_num):
-    job_set1 = []
-    job_set2 = []
-    job_set3 = []
-    job_set4 = []
-    job_set5 = []
+    job_set = []
+    # job_set2 = []
+    # job_set3 = []
+    # job_set4 = []
+    # job_set5 = []
     for i in range(0, job_num):
         job_size = np.random.randint(0, 4)
-        para = [2.46, 6.42, 17.22, 21.2]
+        para = [2.47, 6.43, 16.07, 21.35]
         job_para = para[job_size]
+        batch_size = np.random.choice(np.array([16, 32, 64, 128]), p=np.array([1 / 4, 1 / 4, 1 / 4, 1 / 4]))
+        seq_len = np.random.choice(np.array([64, 128, 256, 512, 1024]), p=np.array([1 / 5, 1 / 5, 1 / 5, 1 / 5, 1 / 5]))
         # context = 8
         # job_para = np.random.choice(np.array([1, 3, 8, 70]), p=np.array([0.25, 0.25, 0.25]))
-        job_type = np.random.choice(np.array([0, 1, 2]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
+        job_type = np.random.choice(np.array([0, 1]), p=np.array([1 / 2, 1 / 2]))
         parallel = np.random.choice(np.array([2, 4, 6]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
+        if job_type == 1:
+            parallel = np.random.choice(np.array([2, 3, 4]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
         # token_per_batch =
         # np.random.choice(np.array([128, 256, 512, 1024, 2048]), p=np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
-        if job_size < 2:
-            unit_gpu = np.random.randint(2, 5)
+        unit_gpu = np.random.randint(10, 20)
+        job_default = [i, job_para, batch_size, job_type, parallel, unit_gpu, seq_len]
+        # job_context_2 = [i, job_para, 2, job_type, parallel, unit_gpu]
+        # job_context_3 = [i, job_para, 4, job_type, parallel, unit_gpu]
+        # job_context_4 = [i, job_para, 8, job_type, parallel, unit_gpu]
+        # job_context_5 = [i, job_para, 16, job_type, parallel, unit_gpu]
+
+        job_set.append(job_default)
+        # job_set2.append(job_context_2)
+        # job_set3.append(job_context_3)
+        # job_set4.append(job_context_4)
+        # job_set5.append(job_context_5)
+    return job_set
+
+
+def transform(job_set, solution, pod_num):
+    worker_node = []
+    ps_n = []
+    rar = np.zeros(len(solution))
+    ps = np.zeros(len(solution))
+    ep = np.zeros(len(solution))
+    for i in range(0, len(solution)):
+        if job_set[i][3] == 0:
+            rar[i] = 1
+        elif job_set[i][3] == 1:
+            ps[i] = 1
+        elif job_set[i][3] == 2:
+            ep[i] = 1
+    for i in range(0, len(solution)):
+        worker_job = np.zeros(pod_num)
+        ps_job = np.zeros(pod_num)
+        if job_set[i][3] == 1:
+            ps_job[solution[i][0][0]] += 1
+            for j in range(1, len(solution[i])):
+                worker_job[solution[i][j][0][0]] += 1
         else:
-            unit_gpu = np.random.randint(5, 10)
-        job_default = [i, job_para, 1, job_type, parallel, unit_gpu]
-        job_context_2 = [i, job_para, 2, job_type, parallel, unit_gpu]
-        job_context_3 = [i, job_para, 4, job_type, parallel, unit_gpu]
-        job_context_4 = [i, job_para, 8, job_type, parallel, unit_gpu]
-        job_context_5 = [i, job_para, 16, job_type, parallel, unit_gpu]
-
-        job_set1.append(job_default)
-        job_set2.append(job_context_2)
-        job_set3.append(job_context_3)
-        job_set4.append(job_context_4)
-        job_set5.append(job_context_5)
-    return job_set1, job_set2, job_set3, job_set4, job_set5
+            for j in range(0, len(solution[i])):
+                worker_job[solution[i][j][0][0]] += 1
+        worker_node.append(worker_job)
+        ps_n.append(ps_job)
+    return worker_node, ps_n, rar, ps, ep
 
 
-for k in range(0, 10):
-    usage = 0.4
-    iter_num = 10
-    flop = 275
-    info = generate_job(100)
-    job = info[2]
-    job1 = job[0:100]
-    all_job_index = [job1[i][0] for i in range(0, len(job1))]
-    single_link_out, sum_traffic_out = traffic_count(job1)
-    solution_out, undeploy_out = deploy_server(all_job_index, job1, single_link_out, sum_traffic_out, 64, 64, 1, 8)
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
+job1 = generate_job(20)
+# job = info[2]
+# job1 = job[0:30]
+all_job_index = [job1[i][0] for i in range(0, len(job1))]
+single_link_out, sum_traffic_out = traffic_count(job1)
+usage = 0.4
+iter_num = 10
+flop = 275
+train_time = job_set_train(job1, flop, usage)
+pod_number = 8
+b_link = 100
+port_num = 14
+t_recon = 0.1
+solution_out, undeploy_out, fix_job, unfix_job = deploy_server(all_job_index, job1, pod_number, 512, 8)
+print(job1)
+print(solution_out, undeploy_out, fix_job, unfix_job, single_link_out)
 
-    t1, t2, _, end4 = mountain_climb(solution_out[0:80], undeploy_out, job1[0:80], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:80], undeploy_out, job1[0:80], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600, b_oxc=100,
-                t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:80], undeploy_out, job1[0:80], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
+# all_data = ILP_new.ilp_new(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
+all_data_relax = LP_relax.lp_relax(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
+link = np.zeros([pod_number, pod_number])
+degree = np.zeros(pod_number)
+t_he = np.zeros([pod_number, pod_number])
+for u in range(0, pod_number):
+    for v in range(0, pod_number):
+        if all_data[u][v] > 0:
+            link[u][v] += 1
+            t_he[u][v] = all_data[u][v]
+            degree[u] += 1
+            degree[v] += 1
 
-    t1, t2, _, end4 = mountain_climb(solution_out[0:60], undeploy_out, job1[0:60], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:60], undeploy_out, job1[0:60], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600, b_oxc=100,
-                t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:60], undeploy_out, job1[0:60], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
+flag = 0
+while 1:
+    max_index = np.argmax(t_he)
+    max_row = int(max_index / pod_number)
+    max_col = max_index % pod_number
+    if t_he[max_row][max_col] == 0:
+        break
+    if degree[max_row] == port_num:
+        for u in range(pod_number):
+            t_he[max_row][u] = 0
+    if degree[max_col] == port_num:
+        for u in range(pod_number):
+            t_he[u][max_col] = 0
+    if degree[max_row] < port_num and degree[max_col] < port_num:
+        link[max_row][max_col] += 1
+        degree[max_row] += 1
+        degree[max_col] += 1
+        t_he[max_row][max_col] = all_data[max_row][max_col] / link[max_row][max_col]
 
-    t1, t2, _, end4 = mountain_climb(solution_out[0:40], undeploy_out, job1[0:40], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:40], undeploy_out, job1[0:40], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600, b_oxc=100,
-                t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:40], undeploy_out, job1[0:40], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    t1, t2, _, end4 = mountain_climb(solution_out[0:20], undeploy_out, job1[0:20], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:20], undeploy_out, job1[0:20], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600, b_oxc=100,
-                t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:20], undeploy_out, job1[0:20], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-    sheet.append([])
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=800, b_oxc=50, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=800,
-                b_oxc=50, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=800, b_oxc=50, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1200, b_oxc=75, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1200,
-                b_oxc=75, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1200, b_oxc=75, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=2000, b_oxc=125, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=2000,
-                b_oxc=125, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=2000, b_oxc=125, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=2400, b_oxc=150, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=2400,
-                b_oxc=150, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, job1[0:100], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=2400, b_oxc=150, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-    sheet.append([])
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, info[0], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, info[0], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, info[0], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, info[1], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, info[1], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, info[1], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, info[2], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, info[2], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, info[2], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, info[3], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, info[3], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, info[3], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-
-    start1 = time.time()
-    t1, t2, _, end4 = mountain_climb(solution_out[0:100], undeploy_out, info[4], pod_num=64, unit_gpu=64,
-                                     per_oxc_port=16, b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop,
-                                     threshold=0.9, iter_lim=iter_num, change_rate=0.3)
-    end1 = time.time()
-    start2 = time.time()
-    t3 = tpe_js(solution_out[0:100], undeploy_out, info[4], pod_num=64, unit_gpu=64, per_oxc_port=16, b_tor=1600,
-                b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop)
-    end2 = time.time()
-    start3 = time.time()
-    t4, t5, _, end5 = mountain_pjs(solution_out[0:100], undeploy_out, info[4], pod_num=64, unit_gpu=64, per_oxc_port=16,
-                                   b_tor=1600, b_oxc=100, t_recon=0.1, gpu_usage=usage, gpu_flops=flop, threshold=0.9,
-                                   iter_lim=iter_num, change_rate=0.3)
-    end3 = time.time()
-    data = [t2, t1, t3, t5, t4, end4 - start1, end1 - start1, end2 - start2, end5 - start3, end3 - start3]
-    sheet.append(data)
-    sheet.append([])
-    sheet.append(["---", "---", "---", "---", "---"])
-    sheet.append([])
-
-workbook.save("output.xlsx")
+print(link)
