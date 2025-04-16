@@ -41,21 +41,21 @@ def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon
     t1_comm = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t1_comm")
     t2_comm = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t2_comm")
 
-    delta_a_u_v = model.addVars(2, port_num + 1, num_pod, num_pod, vtype=GRB.BINARY, name="delta_a_u_v")
+    delta_a_u_v = model.addVars(2, port_num + 1, num_pod, num_pod, lb=0, ub=1, vtype=GRB.CONTINUOUS, name="delta_a_u_v")
     w_a_u_v = model.addVars(2, port_num + 1, num_pod, num_pod, lb=0, vtype=GRB.CONTINUOUS, name="w_a_u_v")
     kd_u_v = model.addVars(2, num_job, num_pod, num_pod, lb=0, vtype=GRB.CONTINUOUS, name="kd_u_v")
     # 通信时间，只考虑 AOI 中的时间，下层时间先不管
-    link = model.addMVar((num_pod, num_pod), lb=0, vtype=GRB.INTEGER, name="L")
-    k1 = model.addVars(num_job, vtype=GRB.BINARY, name="k1")
+    link = model.addMVar((num_pod, num_pod), lb=0, ub=port_num, vtype=GRB.CONTINUOUS, name="L")
+    k1 = model.addVars(num_job, vtype=GRB.CONTINUOUS, name="k1")
     # k1=1时，comp一组，comm二组，k2=1时，comp二组，comm一组，先不考虑多跳转发，all-to-all采用环通信以节约端口
-    k2 = model.addVars(num_job, vtype=GRB.BINARY, name="k2")
-    r = model.addVar(vtype=GRB.BINARY, name="r")
+    k2 = model.addVars(num_job, vtype=GRB.CONTINUOUS, name="k2")
+    t_link = model.addVars(2, num_pod, num_pod, vtype=GRB.CONTINUOUS, name="t_link")
+    # r = model.addVar(vtype=GRB.BINARY, name="r")
     # r=1时说明会重构，否则不会
-    d = model.addMVar((num_job, num_pod, num_pod), lb=0, vtype=GRB.CONTINUOUS, name="d")
+    d = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.CONTINUOUS, name="d")
     # delta_link = model.addMVar((num_pod, num_pod), vtype=GRB.INTEGER, name="delta_link")
-    b_data = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.BINARY, name="b_data")
-
-    m_u_v = model.addVars(2, num_pod, num_pod, lb=0, vtype=GRB.CONTINUOUS, name="m_u_v")
+    # b_data = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.BINARY, name="b_data")
+    print(t_train)
     model.setObjective(t_round, GRB.MINIMIZE)
     model.addConstr(t_round >= t1_comm + t2_comm, name="")
     model.addConstr(t_round >= t1_comm + t1_comp, name="")
@@ -72,23 +72,50 @@ def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon
     model.addConstrs(t1_comp >= k1[i] * t_train[i] for i in range(num_job))
     model.addConstrs(t2_comp >= k2[i] * t_train[i] for i in range(num_job))  # 每阶段的计算时间大于等于当阶段所有业务的计算时间
 
-    model.addConstrs(m_u_v[0, u, v] * b_link >= (quicksum(d[i, u, v] * k1[i] for i in range(num_job))) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(m_u_v[0, u, v] >= 0 for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(m_u_v[0, u, v] >= quicksum(d[i, u, v] for i in range(num_job)) * link[u, v] + port_num * t1_comm - port_num * quicksum(d[i, u, v] for i in range(num_job)) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(m_u_v[0, u, v] <= quicksum(d[i, u, v] for i in range(num_job)) * link[u, v] for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(m_u_v[0, u, v] <= port_num * t1_comm for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(t1_comm >= t_link[0, u, v] for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(t2_comm >= t_link[1, u, v] for u in range(num_pod) for v in range(num_pod))
+
+    model.addConstrs(quicksum(delta_a_u_v[0, a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(kd_u_v[0, i, u, v] >= m * k1[i] - m for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
+    model.addConstrs(kd_u_v[0, i, u, v] <= M * k1[i] for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
+    model.addConstrs(d[i, u, v] - M * (1 - k1[i]) <= kd_u_v[0, i, u, v] for i in range(num_job) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(d[i, u, v] - m * (1 - k1[i]) + m >= kd_u_v[0, i, u, v] for i in range(num_job) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(quicksum(a * w_a_u_v[0, a, u, v] for a in range(port_num + 1)) >= quicksum(kd_u_v[0, i, u, v] for i in range(num_job)) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(M * delta_a_u_v[0, a, u, v] >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(m * delta_a_u_v[0, a, u, v] <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(b_link * t_link[0, u, v] - M * (1 - delta_a_u_v[0, a, u, v]) <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(b_link * t_link[0, u, v] - m * (1 - delta_a_u_v[0, a, u, v]) >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(link[u, v] == quicksum(a * delta_a_u_v[0, a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in range(num_pod))
 
     model.addConstrs(
-        m_u_v[1, u, v] * b_link >= (quicksum(d[i, u, v] * k2[i] for i in range(num_job))) for u in range(num_pod) for v
-        in range(num_pod))
-    model.addConstrs(m_u_v[1, u, v] >= 0 for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(m_u_v[1, u, v] >= quicksum(d[i, u, v] for i in range(num_job)) * link[
-        u, v] + port_num * t2_comm - port_num * quicksum(d[i, u, v] for i in range(num_job)) for u in range(num_pod) for
-                     v in range(num_pod))
+        quicksum(delta_a_u_v[1, a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(
-        m_u_v[1, u, v] <= quicksum(d[i, u, v] for i in range(num_job)) * link[u, v] for u in range(num_pod) for v in
+        kd_u_v[1, i, u, v] >= m * k2[i] - m for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
+    model.addConstrs(
+        kd_u_v[1, i, u, v] <= M * k2[i] for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
+    model.addConstrs(
+        d[i, u, v] - M * (1 - k2[i]) <= kd_u_v[1, i, u, v] for i in range(num_job) for u in range(num_pod) for v in
         range(num_pod))
-    model.addConstrs(m_u_v[1, u, v] <= port_num * t2_comm for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(
+        d[i, u, v] - m * (1 - k2[i]) + m >= kd_u_v[1, i, u, v] for i in range(num_job) for u in range(num_pod) for v in
+        range(num_pod))
+    model.addConstrs(quicksum(a * w_a_u_v[1, a, u, v] for a in range(port_num + 1)) >= quicksum(
+        kd_u_v[1, i, u, v] for i in range(num_job)) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(
+        M * delta_a_u_v[1, a, u, v] >= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in
+        range(num_pod))
+    model.addConstrs(
+        m * delta_a_u_v[1, a, u, v] <= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in
+        range(num_pod))
+    model.addConstrs(
+        t_link[1, u, v] * b_link - M * (1 - delta_a_u_v[1, a, u, v]) <= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in
+        range(num_pod) for v in range(num_pod))
+    model.addConstrs(
+        t_link[1, u, v] * b_link - m * (1 - delta_a_u_v[1, a, u, v]) >= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in
+        range(num_pod) for v in range(num_pod))
+    model.addConstrs(
+        link[u, v] == quicksum(a * delta_a_u_v[1, a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in
+        range(num_pod))
 
     # model.addConstrs(t1_comm * link[u, v] * b_link >= (quicksum(d[i, u, v] * k1[i] for i in range(num_job))) for u in range(num_pod) for v in range(num_pod))
     # model.addConstrs(t2_comm * link[u, v] * b_link >= (quicksum(d[i, u, v] * k2[i] for i in range(num_job))) for u in range(num_pod) for v in range(num_pod))  # 通信时间
@@ -146,34 +173,21 @@ def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon
         (name, data) = (v.varName, v.x)
         if name[:7] == "t_round":
             print(name, data)
-        if name[:2] == "k1":
+        if name[:1] == "k":
             k_name = name
             k_data = data
-            if data == 1:
-                group.append(0)
-            else:
-                group.append(1)
+            print(k_name, k_data)
         if name[:7] == "t1_comm" or name[:7] == "t2_comm" or name[:7] == "t1_comp" or name[:7] == "t2_comp":
             print(name, data)
         if name[:2] == "L[":
             link_data = data
             link_name = name
-            # print(link_name, link_data)
-            link_matrix[int(k1 / num_pod)][k1 % num_pod] = int(link_data)
-            k1 += 1
+            link_matrix[int(k1 / num_pod)][k1 % num_pod] = link_data
+            print(link_name, link_data)
         if name[:2] == "d[":
             d_data = data
             d_name = name
-            # print(d_name, d_data)
-            d_matrix[int(k2 / (num_pod * num_pod))][int((k2 % (num_pod * num_pod)) / num_pod)][k2 % num_pod] = d_data
-            k2 += 1
-    print("link_relax", link_matrix)
-    all_data_1 = np.zeros([num_pod, num_pod])
-    all_data_2 = np.zeros([num_pod, num_pod])
-    for i in range(0, len(d_matrix)):
-        all_data_1 += d_matrix[i] * (1 - group[i])
-        all_data_2 += d_matrix[i] * group[i]
-    print(all_data_1, all_data_2)
-
-    print(all_data_1 + all_data_2)
-    return all_data_1 + all_data_2
+            print(d_name, d_data)
+        if name[:11] == "delta_a_u_v":
+            print(name, data)
+    print("link", link_matrix)
