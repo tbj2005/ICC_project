@@ -172,6 +172,7 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon,
         if name[:2] == "k1":
             k_name = name
             k_data = data
+            print(k_name, k_data)
             if data == 1:
                 group.append(0)
             else:
@@ -199,4 +200,4 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon,
     print(all_data_1, all_data_2)
 
     print(all_data_1 + all_data_2)
-    return all_data_1 + all_data_2
+    return all_data_1 + all_data_2, link_matrix

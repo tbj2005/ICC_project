@@ -948,7 +948,7 @@ def local_data_revert(local_solution, data_per_worker, change_boolean, pod_num):
 
 def count_group_time(aoi_link, group, data_matrix_each_job, pod_num, change_boolean, link_bandwidth):
     if change_boolean == 0:
-        all_data_group = sum([data_matrix_each_job[i] for i in group])
+        all_data_group = sum(np.array([data_matrix_each_job[i] for i in group]))
         t_link = np.zeros([pod_num, pod_num])
         for up in range(pod_num):
             for vp in range(pod_num):
@@ -962,15 +962,18 @@ def count_group_time(aoi_link, group, data_matrix_each_job, pod_num, change_bool
 
 def match_degree(aoi_link, group, t_group, job_index, boolean_change, data_matrix_each_job, pod_num, link_bandwidth):
     if boolean_change == 0:
-        group_add = group.append(job_index)
-        t_after = count_group_time(aoi_link, group_add, data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
+        group_add = group + [job_index]
+        if len(group_add) > 0:
+            t_after = count_group_time(aoi_link, group_add, data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
+        else:
+            t_after = 0
         t_single = count_group_time(aoi_link, [job_index], data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
         return (t_after - t_group) / t_single
 
 
 def job_allocate_fix(aoi_link, long, short, reverse, data_matrix_each_job, pod_num, link_bandwidth, train_long, train_short):
     while len(reverse) > 0:
-        reverse_data = np.array([data_matrix_each_job[i] for i in reverse])
+        reverse_data = np.array([np.sum(data_matrix_each_job[i]) for i in reverse])
         long_time = count_group_time(aoi_link, long, data_matrix_each_job, pod_num, 0, link_bandwidth)
         short_time = count_group_time(aoi_link, short, data_matrix_each_job, pod_num, 0, link_bandwidth)
         if long_time >= train_short and short_time >= train_long:
@@ -994,7 +997,7 @@ def job_allocate_fix(aoi_link, long, short, reverse, data_matrix_each_job, pod_n
             for i in range(len(reverse)):
                 job_match_degree[i] = match_degree(aoi_link, long, long_time, reverse[i], 0, data_matrix_each_job, pod_num, link_bandwidth)
             min_match_index = reverse[np.argmin(job_match_degree)]
-            short.append(min_match_index)
+            long.append(min_match_index)
             reverse.remove(min_match_index)
         elif long_time < train_short and short_time < train_long:
             long_set = np.zeros(len(reverse))
@@ -1018,20 +1021,68 @@ def job_allocate_fix(aoi_link, long, short, reverse, data_matrix_each_job, pod_n
     return long, short, long_time, short_time
 
 
+def link_allocate_port(group, port, ):
+
+
+def topo_each_group(data_per_worker, pod_num, boolean_change, group1, group2, train_1, train_2, local_solution, port, link_bandwidth):
+    data_pod_1 = np.zeros(pod_num)
+    data_pod_2 = np.zeros(pod_num)
+    ia = []
+    oa = []
+    link_matrix = np.zeros([pod_num, pod_num])
+    for job_index in range(len(local_solution)):
+        if local_solution[job_index][0] == -1:
+            worker_set = [k for k in range(pod_num) if local_solution[job_index][k] > 0]
+            ia.append(worker_set)
+            oa.append(worker_set)
+            for k in worker_set:
+                if job_index in group1:
+                    data_pod_1[k] += data_per_worker[job_index] * 2
+                elif job_index in group2:
+                    data_pod_2[k] += data_per_worker[job_index] * 2
+        else:
+            ps_local = local_solution[job_index][0]
+            worker_set = [k for k in range(pod_num) if local_solution[job_index][k] > 0 and k != ps_local]
+            if len(worker_set) == 0:
+                ia.append([])
+                oa.append([])
+            else:
+                ia.append(worker_set + [ps_local])
+                oa.append(worker_set + [ps_local])
+            if job_index in group1:
+                data_pod_1[ps_local] += 2 * len(worker_set) * data_per_worker[job_index]
+                for k in worker_set:
+                    data_pod_1[k] += 2 * data_per_worker[job_index]
+            if job_index in group2:
+                data_pod_2[ps_local] += 2 * len(worker_set) * data_per_worker[job_index]
+                for k in worker_set:
+                    data_pod_2[k] += 2 * data_per_worker[job_index]
+
+    t_ideal_1 = data_pod_1 / (port * link_bandwidth)
+    t_ideal_2 = data_pod_2 / (port * link_bandwidth)
+    if boolean_change == 0:
+        for k in range(pod_num):
+            if t_ideal_1[k] > train_2 and t_ideal_2[k] > train_1:
+                if t_ideal_1[k] > t_ideal_2[k]:
+
+
 def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_worker, pod_num, boolean_change):
     sort_train = np.argsort(t_train)
-    print(non_conflict(local_solution), sort_train, t_train)
+    # print(non_conflict(local_solution), sort_train, t_train)
     t_test = []
     long_group_set = []
     short_group_set = []
     if boolean_change == 0:
         data_matrix = local_data_revert(local_solution, data_per_worker, 0, pod_num)
+        # aoi_link = topo_count_fix(data_matrix)
+        print(aoi_link)
         for i in range(1, len(sort_train)):
-            long_group = [k for k in range(len(sort_train)) if sort_train[k] >= i]
-            short_group = [np.where(sort_train == i - 1)[0][0]]
-            reverse_job = [k for k in range(len(sort_train)) if sort_train[k] < i - 1]
-            t_long_train = max([t_train[k] for k in long_group])
+            long_group = [sort_train[k] for k in range(i, len(sort_train))]
+            short_group = [sort_train[i - 1]]
+            reverse_job = [sort_train[k] for k in range(0, i - 1)]
+            t_long_train = max(t_train)
             t_short_train = t_train[short_group[0]]
+            # print(t_train)
             long_group, short_group, long_time, short_time = (
                 job_allocate_fix(aoi_link, long_group, short_group, reverse_job, data_matrix, pod_num, link_bandwidth, t_long_train, t_short_train))
             if long_time <= t_short_train and short_time <= t_long_train:
@@ -1044,11 +1095,47 @@ def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_
                 long_group_set.append(long_group)
                 short_group_set.append(short_group)
         test = np.array([t_test[i] for i in range(len(t_test))])
-        min_t, min_t_index = np.min(test), np.argmin(test)
-        return min_t, long_group_set[min_t_index], short_group_set[min_t_index]
+        min_t_feasible, min_t_feasible_index = np.min(test), np.argmin(test)
+        return min_t_feasible, long_group_set[min_t_feasible_index], short_group_set[min_t_feasible_index]
 
 
-job_number = 5
+def topo_count_fix(data_matrix_each_job):
+    d_sum = sum(np.array([data_matrix_each_job[i] for i in range(len(data_matrix_each_job))]))
+    link = np.zeros([pod_number, pod_number])
+    degree = np.zeros(pod_number)
+    t_he = np.zeros([pod_number, pod_number])
+    for u in range(0, pod_number):
+        for v in range(0, pod_number):
+            if d_sum[u][v] > 0:
+                link[u][v] += 1
+                t_he[u][v] = d_sum[u][v]
+                degree[u] += 1
+                degree[v] += 1
+
+    while 1:
+        max_index = np.argmax(t_he)
+        max_row = int(max_index / pod_number)
+        max_col = max_index % pod_number
+        if degree[max_row] > port_num or degree[max_col] > port_num:
+            print("invalid")
+            break
+        if t_he[max_row][max_col] == 0:
+            break
+        if degree[max_row] == port_num:
+            for u in range(pod_number):
+                t_he[max_row][u] = 0
+        if degree[max_col] == port_num:
+            for u in range(pod_number):
+                t_he[u][max_col] = 0
+        if degree[max_row] < port_num and degree[max_col] < port_num:
+            link[max_row][max_col] += 1
+            degree[max_row] += 1
+            degree[max_col] += 1
+            t_he[max_row][max_col] = d_sum[max_row][max_col] / link[max_row][max_col]
+    return link
+
+
+job_number = 30
 job1 = generate_job(job_number)
 # job = info[2]
 # job1 = job[0:30]
@@ -1058,72 +1145,14 @@ usage = 0.4
 iter_num = 10
 flop = 275
 train_time = job_set_train(job1, flop, usage)
-pod_number = 4
+pod_number = 8
 b_link = 30
-port_num = 6
+port_num = 8
 t_recon = 0.1
 solution_out, undeploy_out, fix_job, unfix_job = deploy_server(all_job_index, job1, pod_number, 512, 4)
-print(job1)
-print(solution_out, undeploy_out, fix_job, unfix_job, single_link_out)
+# print(job1)
+# print(solution_out, undeploy_out, fix_job, unfix_job, single_link_out)
 
-d = np.array([np.zeros([pod_number, pod_number]) for _ in range(job_number)])
-
-for i in range(0, job_number):
-    if fix_job[i] != 1:
-        worker = [x for x in range(len(solution_out[i][1])) if solution_out[i][1][x] > 0]
-        for u in range(0, len(worker)):
-            if u == len(worker) - 1:
-                d[i, worker[u], worker[0]] = single_link_out[i]
-            else:
-                d[i, worker[u], worker[u] + 1] = single_link_out[i]
-        continue
-    for x in range(0, pod_number):
-        if x != solution_out[i][0]:
-            d[i, x, solution_out[i][0]] = single_link_out[i] * solution_out[i][1][x]
-            d[i, solution_out[i][0], x] = single_link_out[i] * solution_out[i][1][x]
-            # 通过放置约束固定流量矩阵
-        if x == solution_out[i][0]:
-            d[i, x, solution_out[i][0]] = 0
-            d[i, solution_out[i][0], x] = 0
-
-d_sum = sum(d)
-print(d_sum)
-
-link = np.zeros([pod_number, pod_number])
-degree = np.zeros(pod_number)
-t_he = np.zeros([pod_number, pod_number])
-for u in range(0, pod_number):
-    for v in range(0, pod_number):
-        if d_sum[u][v] > 0:
-            link[u][v] += 1
-            t_he[u][v] = d_sum[u][v]
-            degree[u] += 1
-            degree[v] += 1
-
-flag = 0
-while 1:
-    max_index = np.argmax(t_he)
-    max_row = int(max_index / pod_number)
-    max_col = max_index % pod_number
-    if degree[max_row] > port_num or degree[max_col] > port_num:
-        print("invalid")
-        break
-    if t_he[max_row][max_col] == 0:
-        break
-    if degree[max_row] == port_num:
-        for u in range(pod_number):
-            t_he[max_row][u] = 0
-    if degree[max_col] == port_num:
-        for u in range(pod_number):
-            t_he[u][max_col] = 0
-    if degree[max_row] < port_num and degree[max_col] < port_num:
-        link[max_row][max_col] += 1
-        degree[max_row] += 1
-        degree[max_col] += 1
-        t_he[max_row][max_col] = d_sum[max_row][max_col] / link[max_row][max_col]
-
-print(link)
-
-group_algorithm(link, solution_out, b_link, train_time, single_link_out, pod_number, 0)
-# all_data = ILP_new.ilp_new(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
-# LP_relax.lp_relax(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
+all_data, link = ILP_new.ilp_new(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
+print(group_algorithm(link, solution_out, b_link, train_time, single_link_out, pod_number, 0))
+# LP_relax.lp_relax(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num,t_feasible)

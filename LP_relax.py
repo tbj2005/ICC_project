@@ -13,9 +13,10 @@ def sub_group(group):
     return sub
 
 
-def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon, data_per_worker, port_num):
+def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon, data_per_worker, port_num, t_feasible):
     """
     ILP求解代码
+    :param t_feasible: 可行解的总时间
     :param port_num: 每个pod的OXC端口数目
     :param data_per_worker:单 worker 数据量
     :param local_solution:一个集合，内部的元素是业务的 worker 位置，各元素的结构为二元组，第一个元素为ps位置，若不用ps则为0，第二个元素为数组，存放各pod中该业务的worker数目
@@ -32,7 +33,7 @@ def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon
     d_matrix = np.array([np.zeros([num_pod, num_pod]) for _ in range(num_job)])
     model = gp.Model("ICC_new")
     model.update()
-    t_round = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t_round")
+    t_round = model.addVar(lb=0, ub=t_feasible, vtype=GRB.CONTINUOUS, name="t_round")
     t1 = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t1")
     t2 = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t2")
     t1_comp = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t1_comp")
@@ -83,7 +84,7 @@ def lp_relax(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon
     model.addConstrs(quicksum(a * w_a_u_v[0, a, u, v] for a in range(port_num + 1)) >= quicksum(kd_u_v[0, i, u, v] for i in range(num_job)) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(M * delta_a_u_v[0, a, u, v] >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(m * delta_a_u_v[0, a, u, v] <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(b_link * t_link[0, u, v] - M * (1 - delta_a_u_v[0, a, u, v]) <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(b_link * t_link[0, u, v] - M * (1 - delta_a_u_v[0, a, u, v])  <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(b_link * t_link[0, u, v] - m * (1 - delta_a_u_v[0, a, u, v]) >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(link[u, v] == quicksum(a * delta_a_u_v[0, a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in range(num_pod))
 
