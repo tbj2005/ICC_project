@@ -1021,7 +1021,17 @@ def job_allocate_fix(aoi_link, long, short, reverse, data_matrix_each_job, pod_n
     return long, short, long_time, short_time
 
 
-def link_allocate_port(group, port, ):
+def count_time(link_m, data_m, pod_num, bandwidth):
+    t_matrix = np.zeros([pod_num, pod_num])
+    for u in range(pod_num):
+        for v in range(pod_num):
+            if data_m[u][v] > 0:
+                t_matrix[u][v] = data_m[u][v] / (link_m[u][v] * bandwidth)
+    return t_matrix
+
+
+def choose_link(link_m, data_m_1, data_m_2, pod_num, bandwidth, train_1, train_2, max_t1, max_t1_index, max_t2, max_t2_index):
+
 
 
 def topo_each_group(data_per_worker, pod_num, boolean_change, group1, group2, train_1, train_2, local_solution, port, link_bandwidth):
@@ -1055,15 +1065,75 @@ def topo_each_group(data_per_worker, pod_num, boolean_change, group1, group2, tr
                     data_pod_1[k] += 2 * data_per_worker[job_index]
             if job_index in group2:
                 data_pod_2[ps_local] += 2 * len(worker_set) * data_per_worker[job_index]
-                for k in worker_set:
+            for k in worker_set:
                     data_pod_2[k] += 2 * data_per_worker[job_index]
 
     t_ideal_1 = data_pod_1 / (port * link_bandwidth)
     t_ideal_2 = data_pod_2 / (port * link_bandwidth)
     if boolean_change == 0:
-        for k in range(pod_num):
-            if t_ideal_1[k] > train_2 and t_ideal_2[k] > train_1:
-                if t_ideal_1[k] > t_ideal_2[k]:
+        data_group1 = np.zeros([pod_num, pod_num])
+        data_group2 = np.zeros([pod_num, pod_num])
+        for i in range(len(local_solution)):
+            if i in group1:
+                if local_solution[i][0] == -1:
+                    worker = local_solution[i][1]
+                    for u in range(1, len(worker)):
+                        data_group1[worker[u - 1]][worker[u]] += data_per_worker[i]
+                    data_group1[worker[-1]][worker[0]] += data_per_worker[i]
+                else:
+                    ps = local_solution[i][0]
+                    worker = local_solution[i][1]
+                    if len(worker) == 1 and ps in worker:
+                        continue
+                    for u in range(0, len(worker)):
+                        if worker[u] != ps:
+                            data_group1[ps][worker[u]] += data_per_worker[i]
+                            data_group1[worker[u]][ps] += data_per_worker[i]
+            if i in group2:
+                if local_solution[i][0] == -1:
+                    worker = local_solution[i][1]
+                    for u in range(1, len(worker)):
+                        data_group2[worker[u - 1]][worker[u]] += data_per_worker[i]
+                    data_group2[worker[-1]][worker[0]] += data_per_worker[i]
+                else:
+                    ps = local_solution[i][0]
+                    worker = local_solution[i][1]
+                    if len(worker) == 1 and ps in worker:
+                        continue
+                    for u in range(0, len(worker)):
+                        if worker[u] != ps:
+                            data_group2[ps][worker[u]] += data_per_worker[i]
+                            data_group2[worker[u]][ps] += data_per_worker[i]
+        for u in range(pod_num):
+            for v in range(pod_num):
+                if data_group1[u][v] + data_group2[u][v] > 0:
+                    link_matrix[u][v] = 1
+        degree_pod = np.zeros(pod_num)
+        for u in range(pod_num):
+            degree_pod[u] = sum([link_matrix[u][v] + link_matrix[v][u] for v in range(pod_num)])
+            if degree_pod[u] > pod_num:
+                return -1
+        while 1:
+            t1_matrix = count_time(link_matrix, data_group1, pod_num, link_bandwidth)
+            t2_matrix = count_time(link_matrix, data_group2, pod_num, link_bandwidth)
+            max_t1, max_t1_index = np.max(t1_matrix), np.argmax(t1_matrix)
+            max_t2, max_t2_index = np.max(t2_matrix), np.argmax(t2_matrix)
+            if max_t1 < train_2 and max_t2 < train_1:
+                return link_matrix
+            elif max_t1 < train_2 and max_t2 > train_1:
+                max_t2_row, max_t2_col = int(max_t2_index / pod_num), int(max_t2_index % pod_num)
+                if degree_pod[max_t2_row] == port_num or degree_pod[max_t2_col] == port_num:
+                    return link_matrix
+                elif degree_pod[max_t2_row] < port_num and degree_pod[max_t2_col] < port_num:
+                    link_matrix[max_t2_row][max_t2_col] += 1
+            elif max_t1 > train_2 and max_t2 < train_1:
+                max_t1_row, max_t1_col = int(max_t1_index / pod_num), int(max_t1_index % pod_num)
+                if degree_pod[max_t1_row] == port_num or degree_pod[max_t1_col] == port_num:
+                    return link_matrix
+                elif degree_pod[max_t1_row] < port_num and degree_pod[max_t1_col] < port_num:
+                    link_matrix[max_t1_row][max_t1_col] += 1
+            elif max_t1 > train_2 and max_t2 > train_1:
+
 
 
 def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_worker, pod_num, boolean_change):
