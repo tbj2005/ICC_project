@@ -960,25 +960,28 @@ def count_group_time(aoi_link, group, data_matrix_each_job, pod_num, change_bool
         return np.max(t_link)
 
 
-def match_degree(aoi_link, group, t_group, job_index, boolean_change, data_matrix_each_job, pod_num, link_bandwidth):
+def match_degree(long, short, train_long, train_short, train_index, job_index, boolean_change, data_matrix_each_job, pod_num, link_bandwidth, t_old, local_solution, port):
     if boolean_change == 0:
-        group_add = group + [job_index]
-        if len(group_add) > 0:
-            t_after = count_group_time(aoi_link, group_add, data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
-        else:
-            t_after = 0
-        t_single = count_group_time(aoi_link, [job_index], data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
+        long_add = long + [job_index]
+        short_add = short + [job_index]
+        aoi_link_add_long = topo_each_group(data_matrix_each_job, pod_num, 0, long_add, short, train_long, train_short, local_solution, port, link_bandwidth)
+        aoi_link_add_short = topo_each_group(data_matrix_each_job, pod_num, 0, long, short_add, train_long, train_short, local_solution, port, link_bandwidth)
+        aoi_link_single = topo_each_group(data_matrix_each_job, pod_num,  0, [job_index], [], train_index, [], local_solution, port, link_bandwidth)
+        t_long_add_long = count_group_time(aoi_link_add_long, long_add, data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
+        t_long_add_short = count_group_time(aoi_link_add_long, short, data_matrix_each_job, pod_num, boolean_change, link_bandwidth)
         return (t_after - t_group) / t_single
 
 
-def job_allocate_fix(aoi_link, long, short, reverse, data_matrix_each_job, pod_num, link_bandwidth, train_long, train_short):
+def job_allocate_fix(long, short, reverse, data_matrix_each_job, pod_num, link_bandwidth, train_long, train_short, local_solution, port):
     while len(reverse) > 0:
         reverse_data = np.array([np.sum(data_matrix_each_job[i]) for i in reverse])
+        aoi_link = (
+            topo_each_group(data_matrix_each_job, pod_num, 0, long, short, train_long, train_short, local_solution, port, link_bandwidth))
         long_time = count_group_time(aoi_link, long, data_matrix_each_job, pod_num, 0, link_bandwidth)
         short_time = count_group_time(aoi_link, short, data_matrix_each_job, pod_num, 0, link_bandwidth)
         if long_time >= train_short and short_time >= train_long:
             max_data_index = reverse[np.argmax(reverse_data)]
-            degree_long = match_degree(aoi_link, long, long_time, max_data_index, 0, data_matrix_each_job, pod_num, link_bandwidth)
+            degree_long = match_degree(long, long_time, max_data_index, 0, data_matrix_each_job, pod_num, link_bandwidth)
             degree_short = match_degree(aoi_link, short, short_time, max_data_index, 0, data_matrix_each_job, pod_num, link_bandwidth)
             if degree_long <= degree_short:
                 long.append(max_data_index)
@@ -1030,80 +1033,37 @@ def count_time(link_m, data_m, pod_num, bandwidth):
     return t_matrix
 
 
-def choose_link(link_m, data_m_1, data_m_2, pod_num, bandwidth, train_1, train_2, max_t1, max_t1_index, max_t2, max_t2_index):
+def choose_link(link_m, data_m_1, data_m_2, pod_num, bandwidth, train_1, train_2, max_t1, max_t2, degree, port):
+    t_add_link = -1 * np.ones([pod_num, pod_num])
+    for u in range(pod_num):
+        for v in range(pod_num):
+            if degree[u] == port or degree[v] == port:
+                continue
+            elif degree[u] < port and degree[v] < port:
+                link_add = copy.deepcopy(link_m)
+                link_add[u][v] += 1
+                t1 = count_time(link_add, data_m_1, pod_num, bandwidth)
+                t2 = count_time(link_add, data_m_2, pod_num, bandwidth)
+                delta_t = max(np.max(t1), train_2) + max(np.max(t2), train_1) - max(max_t1, train_2) - max(max_t2, train_1)
+                t_add_link[u][v] = delta_t
+    max_link, max_index = np.max(t_add_link), np.argmax(t_add_link)
+    max_row, max_col = int(max_index / pod_num), int(max_index % pod_num)
+    if max_link <= 0:
+        return -1, -1
+    else:
+        return max_row, max_col
 
 
-
-def topo_each_group(data_per_worker, pod_num, boolean_change, group1, group2, train_1, train_2, local_solution, port, link_bandwidth):
-    data_pod_1 = np.zeros(pod_num)
-    data_pod_2 = np.zeros(pod_num)
-    ia = []
-    oa = []
-    link_matrix = np.zeros([pod_num, pod_num])
-    for job_index in range(len(local_solution)):
-        if local_solution[job_index][0] == -1:
-            worker_set = [k for k in range(pod_num) if local_solution[job_index][k] > 0]
-            ia.append(worker_set)
-            oa.append(worker_set)
-            for k in worker_set:
-                if job_index in group1:
-                    data_pod_1[k] += data_per_worker[job_index] * 2
-                elif job_index in group2:
-                    data_pod_2[k] += data_per_worker[job_index] * 2
-        else:
-            ps_local = local_solution[job_index][0]
-            worker_set = [k for k in range(pod_num) if local_solution[job_index][k] > 0 and k != ps_local]
-            if len(worker_set) == 0:
-                ia.append([])
-                oa.append([])
-            else:
-                ia.append(worker_set + [ps_local])
-                oa.append(worker_set + [ps_local])
-            if job_index in group1:
-                data_pod_1[ps_local] += 2 * len(worker_set) * data_per_worker[job_index]
-                for k in worker_set:
-                    data_pod_1[k] += 2 * data_per_worker[job_index]
-            if job_index in group2:
-                data_pod_2[ps_local] += 2 * len(worker_set) * data_per_worker[job_index]
-            for k in worker_set:
-                    data_pod_2[k] += 2 * data_per_worker[job_index]
-
-    t_ideal_1 = data_pod_1 / (port * link_bandwidth)
-    t_ideal_2 = data_pod_2 / (port * link_bandwidth)
+def topo_each_group(data_matrix_each_job, pod_num, boolean_change, group1, group2, train_1, train_2, local_solution, port, link_bandwidth):
     if boolean_change == 0:
         data_group1 = np.zeros([pod_num, pod_num])
         data_group2 = np.zeros([pod_num, pod_num])
+        link_matrix = np.zeros([pod_num, pod_num])
         for i in range(len(local_solution)):
             if i in group1:
-                if local_solution[i][0] == -1:
-                    worker = local_solution[i][1]
-                    for u in range(1, len(worker)):
-                        data_group1[worker[u - 1]][worker[u]] += data_per_worker[i]
-                    data_group1[worker[-1]][worker[0]] += data_per_worker[i]
-                else:
-                    ps = local_solution[i][0]
-                    worker = local_solution[i][1]
-                    if len(worker) == 1 and ps in worker:
-                        continue
-                    for u in range(0, len(worker)):
-                        if worker[u] != ps:
-                            data_group1[ps][worker[u]] += data_per_worker[i]
-                            data_group1[worker[u]][ps] += data_per_worker[i]
+                data_group1 += data_matrix_each_job[i]
             if i in group2:
-                if local_solution[i][0] == -1:
-                    worker = local_solution[i][1]
-                    for u in range(1, len(worker)):
-                        data_group2[worker[u - 1]][worker[u]] += data_per_worker[i]
-                    data_group2[worker[-1]][worker[0]] += data_per_worker[i]
-                else:
-                    ps = local_solution[i][0]
-                    worker = local_solution[i][1]
-                    if len(worker) == 1 and ps in worker:
-                        continue
-                    for u in range(0, len(worker)):
-                        if worker[u] != ps:
-                            data_group2[ps][worker[u]] += data_per_worker[i]
-                            data_group2[worker[u]][ps] += data_per_worker[i]
+                data_group2 += data_matrix_each_job[i]
         for u in range(pod_num):
             for v in range(pod_num):
                 if data_group1[u][v] + data_group2[u][v] > 0:
@@ -1126,17 +1086,26 @@ def topo_each_group(data_per_worker, pod_num, boolean_change, group1, group2, tr
                     return link_matrix
                 elif degree_pod[max_t2_row] < port_num and degree_pod[max_t2_col] < port_num:
                     link_matrix[max_t2_row][max_t2_col] += 1
+                degree_pod[max_t2_row] += 1
+                degree_pod[max_t2_col] += 1
             elif max_t1 > train_2 and max_t2 < train_1:
                 max_t1_row, max_t1_col = int(max_t1_index / pod_num), int(max_t1_index % pod_num)
                 if degree_pod[max_t1_row] == port_num or degree_pod[max_t1_col] == port_num:
                     return link_matrix
                 elif degree_pod[max_t1_row] < port_num and degree_pod[max_t1_col] < port_num:
                     link_matrix[max_t1_row][max_t1_col] += 1
+                degree_pod[max_t1_row] += 1
+                degree_pod[max_t1_col] += 1
             elif max_t1 > train_2 and max_t2 > train_1:
+                link_row, link_col = (
+                    choose_link(link_matrix, data_group1, data_group2, pod_num, link_bandwidth, train_1, train_2, max_t1, max_t2, degree_pod, pod_num))
+                if link_row == -1:
+                    return link_matrix
+                else:
+                    link_matrix[link_row][link_col] += 1
 
 
-
-def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_worker, pod_num, boolean_change):
+def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_worker, pod_num, boolean_change, port_num):
     sort_train = np.argsort(t_train)
     # print(non_conflict(local_solution), sort_train, t_train)
     t_test = []
@@ -1154,7 +1123,7 @@ def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_
             t_short_train = t_train[short_group[0]]
             # print(t_train)
             long_group, short_group, long_time, short_time = (
-                job_allocate_fix(aoi_link, long_group, short_group, reverse_job, data_matrix, pod_num, link_bandwidth, t_long_train, t_short_train))
+                job_allocate_fix(aoi_link, long_group, short_group, reverse_job, data_matrix, pod_num, link_bandwidth, t_long_train, t_short_train, local_solution, port_num))
             if long_time <= t_short_train and short_time <= t_long_train:
                 t_test.append(t_short_train + t_long_train)
                 long_group_set.append(long_group)
