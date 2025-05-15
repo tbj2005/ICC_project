@@ -1138,7 +1138,7 @@ def group_algorithm(aoi_link, local_solution, link_bandwidth, t_train, data_per_
         return min_t_feasible, long_group_set[min_t_feasible_index], short_group_set[min_t_feasible_index]
 
 
-def topo_count_fix(data_matrix_each_job):
+def topo_count_fix(data_matrix_each_job, pod_number, port_num):
     d_sum = sum(np.array([data_matrix_each_job[i] for i in range(len(data_matrix_each_job))]))
     link = np.zeros([pod_number, pod_number])
     degree = np.zeros(pod_number)
@@ -1174,24 +1174,24 @@ def topo_count_fix(data_matrix_each_job):
     return link
 
 
-job_number = 30
-job1 = generate_job(job_number)
-# job = info[2]
-# job1 = job[0:30]
-all_job_index = [job1[i][0] for i in range(0, len(job1))]
-single_link_out, sum_traffic_out = traffic_count(job1)
-usage = 0.4
-iter_num = 10
-flop = 275
-train_time = job_set_train(job1, flop, usage)
-pod_number = 8
-b_link = 30
-port_num = 8
-t_recon = 0.1
-solution_out, undeploy_out, fix_job, unfix_job = deploy_server(all_job_index, job1, pod_number, 512, 4)
-# print(job1)
-# print(solution_out, undeploy_out, fix_job, unfix_job, single_link_out)
-
-all_data, link = ILP_new.ilp_new(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
-print(group_algorithm(link, solution_out, b_link, train_time, single_link_out, pod_number, 0))
+# job_number = 30
+# job1 = generate_job(job_number)
+# # job = info[2]
+# # job1 = job[0:30]
+# all_job_index = [job1[i][0] for i in range(0, len(job1))]
+# single_link_out, sum_traffic_out = traffic_count(job1)
+# usage = 0.4
+# iter_num = 10
+# flop = 275
+# train_time = job_set_train(job1, flop, usage)
+# pod_number = 8
+# b_link = 30
+# port_num = 8
+# t_recon = 0.1
+# solution_out, undeploy_out, fix_job, unfix_job = deploy_server(all_job_index, job1, pod_number, 512, 4)
+# # print(job1)
+# # print(solution_out, undeploy_out, fix_job, unfix_job, single_link_out)
+#
+# all_data, link = ILP_new.ilp_new(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num)
+# print(group_algorithm(link, solution_out, b_link, train_time, single_link_out, pod_number, 0))
 # LP_relax.lp_relax(solution_out, fix_job, unfix_job, train_time, len(job1), pod_number, b_link, t_recon, single_link_out, port_num,t_feasible)
