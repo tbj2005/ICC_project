@@ -9,21 +9,39 @@ def hungarian_max(matrix, size):
     :param size:
     :return:
     """
-    zero_num = np.count_nonzero(matrix)
-    sort_index = np.argsort(- matrix, axis=None)[- zero_num:]
+    nonzero_num = np.count_nonzero(matrix)
+    sort_index = np.argsort(-1 * matrix, axis=None)[: nonzero_num]
     sort_row_col = [(int(sort_index[i] / size), int(sort_index[i] % size)) for i in range(len(sort_index))]
-    set_row_ava = [i for i in range(size)]
-    set_col_ava = [i for i in range(size)]
+    set_row_use = []
+    set_col_use = []
     hungarian_index = []
-    for i in range(zero_num):
-        if len(set_row_ava) == 0 and len(set_col_ava) == 0:
+    flag = []
+    for i in range(nonzero_num):
+        if len(set_row_use) == size and len(set_col_use) == size:
             break
         (sort_row, sort_col) = sort_row_col[i]
-        if sort_row in set_row_ava and sort_col in sort_row_col:
-            hungarian_index.append((sort_row, sort_col))
-    if len(set_row_ava) + len(set_col_ava) > 0:
+        hungarian_index.append((sort_row, sort_col))
+        if sort_row not in set_row_use:
+            set_row_use.append(sort_row)
+        set_row_use_copy = copy.deepcopy(set_row_use)
+        if sort_col not in set_col_use:
+            set_col_use.append(sort_col)
+        set_col_use_copy = copy.deepcopy(set_col_use)
+        flag.append((set_row_use_copy, set_col_use_copy))
+    if len(set_row_use) + len(set_col_use) > 2 * size:
         return np.zeros([size, size])
     else:
+        match_degree = []
+        k = size
+        while 1:
+            if len(match_degree) == size:
+                break
+            else:
+                match_degree.append(hungarian_index[-1])
+                hungarian_index = [hungarian_index[i] for i in range(len(hungarian_index))
+                                   if hungarian_index[i][0] != hungarian_index[-1][0] and
+                                   hungarian_index[i][1] != hungarian_index[-1][1]]
+        print(match_degree)
 
 
 
