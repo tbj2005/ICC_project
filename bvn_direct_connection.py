@@ -11,7 +11,8 @@ import pdb
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 start_time = time.time()
 
-#转对称
+
+# 转对称
 def make_symmetric(matrix):
     symmetric_matrix = np.zeros((matrix.shape[0], matrix.shape[1]))
 
@@ -20,6 +21,7 @@ def make_symmetric(matrix):
             symmetric_matrix[i][j] = max(matrix[i][j], matrix[j][i])
 
     return symmetric_matrix
+
 
 def stuffing_min(matrix):
     copied_matrix = np.copy(matrix)
@@ -30,15 +32,15 @@ def stuffing_min(matrix):
             if np.all(row_sum == row_sum[0]) and np.all(column_sum == column_sum[0]):
                 break
         max_value = max(np.maximum(row_sum, column_sum))
-        flag_column = False #寻找列为假
-        row_differ = np.array([max_value] * R_S) - row_sum #获取行的差
-        column_differ = np.array([max_value] * R_S) - column_sum #获取列的差
+        flag_column = False  #寻找列为假
+        row_differ = np.array([max_value] * R_S) - row_sum  #获取行的差
+        column_differ = np.array([max_value] * R_S) - column_sum  #获取列的差
 
-        s_R_d_index = np.argsort(row_differ) #行差排序后的索引
-        sort_row_differ = row_differ[s_R_d_index] #行差排序后的结果
+        s_R_d_index = np.argsort(row_differ)  #行差排序后的索引
+        sort_row_differ = row_differ[s_R_d_index]  #行差排序后的结果
 
-        s_C_d_index = np.argsort(column_differ) #列差排序后的索引
-        sort_column_differ = column_differ[s_C_d_index] #列差排序后的结果
+        s_C_d_index = np.argsort(column_differ)  #列差排序后的索引
+        sort_column_differ = column_differ[s_C_d_index]  #列差排序后的结果
 
         # 合并排序后的行差和列差为一个新的数组
         combined_array = np.concatenate((sort_row_differ.reshape(1, -1), sort_column_differ.reshape(1, -1)), axis=1)
@@ -51,7 +53,7 @@ def stuffing_min(matrix):
 
         # 找到新数组非零最小值的索引和非零元素的最小值
         min_nonzero_index = np.argmin(nonzero_elements)
-        min_nonzero_d = nonzero_elements[min_nonzero_index] #这个值就是用来填充的值
+        min_nonzero_d = nonzero_elements[min_nonzero_index]  # 这个值就是用来填充的值
 
         # 返回这个数在原矩阵中的索引
         min_d_index = nonzero_indices[1][min_nonzero_index]
@@ -60,10 +62,10 @@ def stuffing_min(matrix):
         # if max_d_index < R_S or min_d_index < R_S:
         if min_d_index < R_S:
             # max_p = s_R_d_index[max_d_index]
-            min_p = s_R_d_index[min_d_index] #最小差距是行
-            flag_column = True #此时要寻找最大差距的列
+            min_p = s_R_d_index[min_d_index]  # 最小差距是行
+            flag_column = True  # 此时要寻找最大差距的列
         else:
-            min_p = s_C_d_index[min_d_index % R_S] #最小车距是列，此时要寻找最大差距的行
+            min_p = s_C_d_index[min_d_index % R_S]  # 最小车距是列，此时要寻找最大差距的行
             # max_p = s_C_d_index[max_d_index % R_S]
 
         if flag_column:  # 如果要寻找最大差距的列
@@ -93,6 +95,7 @@ def stuffing_min(matrix):
                     copied_matrix[second_largest_index][min_p] += min_nonzero_d
     return copied_matrix
 
+
 def stuffing_new_min(matrix):
     copied_matrix = np.copy(matrix)
     while True:
@@ -102,15 +105,15 @@ def stuffing_new_min(matrix):
             if np.all(row_sum == row_sum[0]) and np.all(column_sum == column_sum[0]):
                 break
         max_value = max(np.maximum(row_sum, column_sum))
-        flag_column = False #寻找列为假
-        row_differ = np.array([max_value] * R_S) - row_sum #获取行的差
-        column_differ = np.array([max_value] * R_S) - column_sum #获取列的差
+        flag_column = False  # 寻找列为假
+        row_differ = np.array([max_value] * R_S) - row_sum  # 获取行的差
+        column_differ = np.array([max_value] * R_S) - column_sum  # 获取列的差
 
-        s_R_d_index = np.argsort(row_differ) #行差排序后的索引
-        sort_row_differ = row_differ[s_R_d_index] #行差排序后的结果
+        s_R_d_index = np.argsort(row_differ)  # 行差排序后的索引
+        sort_row_differ = row_differ[s_R_d_index]  # 行差排序后的结果
 
-        s_C_d_index = np.argsort(column_differ) #列差排序后的索引
-        sort_column_differ = column_differ[s_C_d_index] #列差排序后的结果
+        s_C_d_index = np.argsort(column_differ)  # 列差排序后的索引
+        sort_column_differ = column_differ[s_C_d_index]  # 列差排序后的结果
 
         # 合并排序后的行差和列差为一个新的数组
         combined_array = np.concatenate((sort_row_differ.reshape(1, -1), sort_column_differ.reshape(1, -1)), axis=1)
@@ -123,32 +126,32 @@ def stuffing_new_min(matrix):
 
         # 找到新数组非零最小值的索引和非零元素的最小值
         min_nonzero_index = np.argmin(nonzero_elements)
-        min_nonzero_d = nonzero_elements[min_nonzero_index] #这个值就是用来填充的值
+        min_nonzero_d = nonzero_elements[min_nonzero_index]  #这个值就是用来填充的值
 
         # 返回这个数在原矩阵中的索引
         min_d_index = nonzero_indices[1][min_nonzero_index]
 
         if min_d_index < R_S:
-            min_p = s_R_d_index[min_d_index] #最小差距是行
-            flag_column = True #此时要寻找最大差距的列
+            min_p = s_R_d_index[min_d_index]  #最小差距是行
+            flag_column = True  #此时要寻找最大差距的列
         else:
-            min_p = s_C_d_index[min_d_index % R_S] #最小车距是列，此时要寻找最大差距的行
+            min_p = s_C_d_index[min_d_index % R_S]  #最小车距是列，此时要寻找最大差距的行
 
         if flag_column:  # 如果要寻找最小差距的列
             # min_to_stuff_index = np.argmin(column_differ)
-            min_to_stuff_index=np.nonzero(column_differ)[0][np.argmin(column_differ[np.nonzero(column_differ)])]
-            if column_differ[min_to_stuff_index] > min_nonzero_d: #如果需求大于被填充值
-                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1: #如果是最后一次循环，则直接填充
+            min_to_stuff_index = np.nonzero(column_differ)[0][np.argmin(column_differ[np.nonzero(column_differ)])]
+            if column_differ[min_to_stuff_index] > min_nonzero_d:  #如果需求大于被填充值
+                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  #如果是最后一次循环，则直接填充
                     copied_matrix[min_p][min_to_stuff_index] += min_nonzero_d
-                else: #如果不是最后一次，则依次填充
+                else:  #如果不是最后一次，则依次填充
                     if min_p != min_to_stuff_index:
-                        copied_matrix[min_p][min_to_stuff_index] += min_nonzero_d #列的差值大于待填充值， 直接填充待填充值
+                        copied_matrix[min_p][min_to_stuff_index] += min_nonzero_d  #列的差值大于待填充值， 直接填充待填充值
                     else:
                         column_differ_copy = np.copy(column_differ)
-                        while min_nonzero_d>0 and np.count_nonzero(column_differ_copy)!=0: #再循环过程中肯定不会再取到对角线了
+                        while min_nonzero_d > 0 and np.count_nonzero(column_differ_copy) != 0:  #再循环过程中肯定不会再取到对角线了
                             if column_differ_copy[min_p] != 0 and np.count_nonzero(column_differ_copy) == 1:
                                 column_differ_copy[min_p] = column_differ[min_p]
-                                if column_differ[min_p]>=min_nonzero_d:
+                                if column_differ[min_p] >= min_nonzero_d:
                                     copied_matrix[min_p][min_p] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                     column_differ_copy[min_p] -= min_nonzero_d
                                     min_nonzero_d = 0
@@ -158,29 +161,31 @@ def stuffing_new_min(matrix):
                                     column_differ_copy[min_p] = 0  # 该列剩余的差值
                                 break
                             column_differ_copy[min_to_stuff_index] = np.iinfo(np.int32).max
-                            second_largest_index = np.nonzero(column_differ_copy)[0][np.argmin(column_differ_copy[np.nonzero(column_differ_copy)])]
+                            second_largest_index = np.nonzero(column_differ_copy)[0][
+                                np.argmin(column_differ_copy[np.nonzero(column_differ_copy)])]
                             # second_largest_index = np.argmin(column_differ)# 如果是对角线，则取第二大的值
-                            if column_differ[second_largest_index] > min_nonzero_d:#如果第二大的值大于待填充值，则填充待填充值
+                            if column_differ[second_largest_index] > min_nonzero_d:  #如果第二大的值大于待填充值，则填充待填充值
                                 copied_matrix[min_p][second_largest_index] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                 column_differ_copy[second_largest_index] -= min_nonzero_d
                                 min_nonzero_d = 0
-                            else:#待填充值大于列那个值
+                            else:  #待填充值大于列那个值
                                 copied_matrix[min_p][second_largest_index] += column_differ[second_largest_index]
                                 min_nonzero_d -= column_differ[second_largest_index]
                                 column_differ_copy[second_largest_index] = 0  #该列剩余的差值
 
-            else:#如果列需求小于被填充值
-                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1: #如果是最后一次循环，则直接填充
+            else:  #如果列需求小于被填充值
+                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  #如果是最后一次循环，则直接填充
                     copied_matrix[min_p][min_to_stuff_index] += column_differ[min_to_stuff_index]
-                else: #如果不是最后一次，则依次填充
-                    if min_p != min_to_stuff_index: #先判断如果不是对角线，就一直填充，直到填充值为0或带
+                else:  #如果不是最后一次，则依次填充
+                    if min_p != min_to_stuff_index:  #先判断如果不是对角线，就一直填充，直到填充值为0或带
                         copied_matrix[min_p][min_to_stuff_index] += column_differ[min_to_stuff_index]
-                        min_nonzero_d -= column_differ[min_to_stuff_index]# 新的待填充值
-                        column_differ[min_to_stuff_index] = 0# 该列剩余的差值
+                        min_nonzero_d -= column_differ[min_to_stuff_index]  # 新的待填充值
+                        column_differ[min_to_stuff_index] = 0  # 该列剩余的差值
                         while min_nonzero_d > 0 and np.count_nonzero(column_differ) != 0:
                             # column_differ[max_to_stuff_index] = np.iinfo(np.int32).min
                             # second_largest_index = np.argmin(column_differ)
-                            second_largest_index = np.nonzero(column_differ)[0][np.argmin(column_differ[np.nonzero(column_differ)])]
+                            second_largest_index = np.nonzero(column_differ)[0][
+                                np.argmin(column_differ[np.nonzero(column_differ)])]
                             if second_largest_index != min_p:
                                 if column_differ[second_largest_index] > min_nonzero_d:
                                     copied_matrix[min_p][second_largest_index] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
@@ -198,13 +203,13 @@ def stuffing_new_min(matrix):
                                     column_differ[second_largest_index] = np.iinfo(np.int32).max
 
 
-                    else: #如果是对角线，就换第二大的位置
+                    else:  #如果是对角线，就换第二大的位置
                         column_differ_copy = np.copy(column_differ)
 
                         while min_nonzero_d > 0 and np.count_nonzero(column_differ) != 0:
                             if column_differ_copy[min_p] != 0 and np.count_nonzero(column_differ_copy) == 1:
                                 column_differ_copy[min_p] = column_differ[min_p]
-                                if column_differ[min_p]>=min_nonzero_d:
+                                if column_differ[min_p] >= min_nonzero_d:
                                     copied_matrix[min_p][min_p] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                     column_differ_copy[min_p] -= min_nonzero_d
                                     min_nonzero_d = 0
@@ -215,7 +220,8 @@ def stuffing_new_min(matrix):
                                 break
                             column_differ_copy[min_to_stuff_index] = np.iinfo(np.int32).max
                             # second_largest_index = np.argmin(column_differ)
-                            second_largest_index = np.nonzero(column_differ_copy)[0][np.argmin(column_differ_copy[np.nonzero(column_differ_copy)])]
+                            second_largest_index = np.nonzero(column_differ_copy)[0][
+                                np.argmin(column_differ_copy[np.nonzero(column_differ_copy)])]
                             if column_differ[second_largest_index] > min_nonzero_d:
                                 copied_matrix[min_p][second_largest_index] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                 column_differ_copy[second_largest_index] -= min_nonzero_d
@@ -225,16 +231,16 @@ def stuffing_new_min(matrix):
                                 min_nonzero_d -= column_differ[second_largest_index]
                                 column_differ_copy[second_largest_index] = 0  # 该列剩余的差值
                 # 根据索引信息找到在原数组中的索引
-        else: #flag_column == False
+        else:  #flag_column == False
             # max_to_stuff_index = np.argmin(row_differ)  # 获取行最大值的索引
-            max_to_stuff_index=np.nonzero(row_differ)[0][np.argmin(row_differ[np.nonzero(row_differ)])]
+            max_to_stuff_index = np.nonzero(row_differ)[0][np.argmin(row_differ[np.nonzero(row_differ)])]
             if row_differ[max_to_stuff_index] > min_nonzero_d:  # 如果需求大于被填充值
                 if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  # 如果是最后一次循环，则直接填充
                     copied_matrix[max_to_stuff_index][min_p] += min_nonzero_d
                 else:  # 如果不是最后一次，则依次填充
                     if min_p != max_to_stuff_index:
                         copied_matrix[max_to_stuff_index][min_p] += min_nonzero_d  # 列的差值大于待填充值， 直接填充待填充值
-                    else:#如果是对角线
+                    else:  #如果是对角线
                         row_differ_copy = np.copy(row_differ)
 
                         while min_nonzero_d > 0 and np.count_nonzero(row_differ_copy) != 0:
@@ -250,7 +256,8 @@ def stuffing_new_min(matrix):
                                     row_differ_copy[min_p] = 0  # 该列剩余的差值
                                 break
                             row_differ_copy[max_to_stuff_index] = np.iinfo(np.int32).max
-                            second_largest_index = np.nonzero(row_differ_copy)[0][np.argmin(row_differ_copy[np.nonzero(row_differ_copy)])]
+                            second_largest_index = np.nonzero(row_differ_copy)[0][
+                                np.argmin(row_differ_copy[np.nonzero(row_differ_copy)])]
                             # second_largest_index = np.argmin(row_differ)  # 如果是对角线，则取第二大的值
                             if row_differ[second_largest_index] > min_nonzero_d:  # 如果第二大的值大于待填充值，则填充待填充值
                                 copied_matrix[second_largest_index][min_p] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
@@ -261,15 +268,15 @@ def stuffing_new_min(matrix):
                                 min_nonzero_d -= row_differ[second_largest_index]
                                 row_differ_copy[second_largest_index] = 0  # 该列剩余的差值
 
-            else:#如果需求小于等于被填充值
-                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1: #如果是最后一次循环，则直接填充
+            else:  #如果需求小于等于被填充值
+                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  #如果是最后一次循环，则直接填充
                     copied_matrix[max_to_stuff_index][min_p] += row_differ[max_to_stuff_index]
-                else: #如果不是最后一次，则依次填充
-                    if min_p != max_to_stuff_index: #先判断如果不是对角线，不是就一直填充，直到填充值为0或带
+                else:  #如果不是最后一次，则依次填充
+                    if min_p != max_to_stuff_index:  #先判断如果不是对角线，不是就一直填充，直到填充值为0或带
                         copied_matrix[max_to_stuff_index][min_p] += row_differ[max_to_stuff_index]
-                        min_nonzero_d -= row_differ[max_to_stuff_index]# 新的待填充值
-                        row_differ[max_to_stuff_index] = 0# 该列剩余的差值
-                        row_d_copy = np.copy(row_differ) #最开始的差值
+                        min_nonzero_d -= row_differ[max_to_stuff_index]  # 新的待填充值
+                        row_differ[max_to_stuff_index] = 0  # 该列剩余的差值
+                        row_d_copy = np.copy(row_differ)  #最开始的差值
                         while min_d_index > 0 and np.count_nonzero(row_differ) != 0:
                             # row_differ[max_to_stuff_index] = np.iinfo(np.int32).min
                             if np.count_nonzero(row_differ) == 1:
@@ -284,7 +291,8 @@ def stuffing_new_min(matrix):
                                     row_differ[second_largest_index] = 0  # 该列剩余的差
                             else:
                                 # second_largest_index = np.argmin(row_differ)
-                                second_largest_index = np.nonzero(row_differ)[0][np.argmin(row_differ[np.nonzero(row_differ)])]
+                                second_largest_index = np.nonzero(row_differ)[0][
+                                    np.argmin(row_differ[np.nonzero(row_differ)])]
                             if second_largest_index != min_p:
                                 if row_differ[second_largest_index] > min_nonzero_d:
                                     copied_matrix[second_largest_index][min_p] += min_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
@@ -304,7 +312,7 @@ def stuffing_new_min(matrix):
                             # row_differ[second_largest_index] = np.iinfo(np.int32).min
 
 
-                    else: #如果是对角线，就换第二大的位置
+                    else:  #如果是对角线，就换第二大的位置
                         row_differ_copy = np.copy(row_differ)
 
                         while min_nonzero_d > 0 and np.count_nonzero(row_differ_copy) != 0:
@@ -332,9 +340,7 @@ def stuffing_new_min(matrix):
                                 min_nonzero_d -= row_differ[second_largest_index]
                                 row_differ_copy[second_largest_index] = 0  # 该列剩余的差值
 
-
     return copied_matrix
-
 
 
 def stuffing_max(matrix):
@@ -346,15 +352,15 @@ def stuffing_max(matrix):
             if np.all(row_sum == row_sum[0]) and np.all(column_sum == column_sum[0]):
                 break
         max_value = max(np.maximum(row_sum, column_sum))
-        flag_column = False #寻找列为假
-        row_differ = np.array([max_value] * R_S) - row_sum #获取行的差
-        column_differ = np.array([max_value] * R_S) - column_sum #获取列的差
+        flag_column = False  #寻找列为假
+        row_differ = np.array([max_value] * R_S) - row_sum  #获取行的差
+        column_differ = np.array([max_value] * R_S) - column_sum  #获取列的差
 
-        s_R_d_index = np.argsort(row_differ) #行差排序后的索引
-        sort_row_differ = row_differ[s_R_d_index] #行差排序后的结果
+        s_R_d_index = np.argsort(row_differ)  #行差排序后的索引
+        sort_row_differ = row_differ[s_R_d_index]  #行差排序后的结果
 
-        s_C_d_index = np.argsort(column_differ) #列差排序后的索引
-        sort_column_differ = column_differ[s_C_d_index] #列差排序后的结果
+        s_C_d_index = np.argsort(column_differ)  #列差排序后的索引
+        sort_column_differ = column_differ[s_C_d_index]  #列差排序后的结果
 
         # 合并排序后的行差和列差为一个新的数组
         combined_array = np.concatenate((sort_row_differ.reshape(1, -1), sort_column_differ.reshape(1, -1)), axis=1)
@@ -367,25 +373,25 @@ def stuffing_max(matrix):
 
         # 找到新数组非零最小值的索引和非零元素的最小值
         max_nonzero_index = np.argmax(nonzero_elements)
-        max_nonzero_d = nonzero_elements[max_nonzero_index] #这个值就是用来填充的值
+        max_nonzero_d = nonzero_elements[max_nonzero_index]  #这个值就是用来填充的值
 
         # 返回这个数在原矩阵中的索引
         max_d_index = nonzero_indices[1][max_nonzero_index]
 
         if max_d_index < R_S:
-            max_p = s_R_d_index[max_d_index] #最小差距是行
-            flag_column = True #此时要寻找最大差距的列
+            max_p = s_R_d_index[max_d_index]  #最小差距是行
+            flag_column = True  #此时要寻找最大差距的列
         else:
-            max_p = s_C_d_index[max_d_index % R_S] #最小车距是列，此时要寻找最大差距的行
+            max_p = s_C_d_index[max_d_index % R_S]  #最小车距是列，此时要寻找最大差距的行
 
         if flag_column:  # 如果要寻找最大差距的列
             max_to_stuff_index = np.argmax(column_differ)
-            if column_differ[max_to_stuff_index] > max_nonzero_d: #如果需求大于被填充值
-                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1: #如果是最后一次循环，则直接填充
+            if column_differ[max_to_stuff_index] > max_nonzero_d:  #如果需求大于被填充值
+                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  #如果是最后一次循环，则直接填充
                     copied_matrix[max_p][max_to_stuff_index] += max_nonzero_d
-                else: #如果不是最后一次，则依次填充
+                else:  #如果不是最后一次，则依次填充
                     if max_p != max_to_stuff_index:
-                        copied_matrix[max_p][max_to_stuff_index] += max_nonzero_d #列的差值大于待填充值， 直接填充待填充值
+                        copied_matrix[max_p][max_to_stuff_index] += max_nonzero_d  #列的差值大于待填充值， 直接填充待填充值
                         # column_differ[max_to_stuff_index] -= max_nonzero_d# 该列剩余的差值
                         # max_nonzero_d = column_differ[max_to_stuff_index]# 新的待填充值
                         # row_differ[max_p] = 0  # 该行的差值被填平
@@ -404,10 +410,10 @@ def stuffing_max(matrix):
                         # second_largest_index = np.argmax(column_differ)
                         ## 填充
                         column_differ_copy = np.copy(column_differ)
-                        while max_nonzero_d>0 and np.count_nonzero(column_differ_copy)!=0: #再循环过程中肯定不会再取到对角线了
+                        while max_nonzero_d > 0 and np.count_nonzero(column_differ_copy) != 0:  #再循环过程中肯定不会再取到对角线了
                             if column_differ_copy[max_p] != 0 and np.count_nonzero(column_differ_copy) == 1:
                                 column_differ_copy[max_p] = column_differ[max_p]
-                                if column_differ[max_p]>=max_nonzero_d:
+                                if column_differ[max_p] >= max_nonzero_d:
                                     copied_matrix[max_p][max_p] += max_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                     column_differ_copy[max_p] -= max_nonzero_d
                                     max_nonzero_d = 0
@@ -417,24 +423,24 @@ def stuffing_max(matrix):
                                     column_differ_copy[max_p] = 0  # 该列剩余的差值
                                 break
                             column_differ_copy[max_to_stuff_index] = np.iinfo(np.int32).min
-                            second_largest_index = np.argmax(column_differ_copy)# 如果是对角线，则取第二大的值
-                            if column_differ[second_largest_index] > max_nonzero_d:#如果第二大的值大于待填充值，则填充待填充值
+                            second_largest_index = np.argmax(column_differ_copy)  # 如果是对角线，则取第二大的值
+                            if column_differ[second_largest_index] > max_nonzero_d:  #如果第二大的值大于待填充值，则填充待填充值
                                 copied_matrix[max_p][second_largest_index] += max_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                 column_differ_copy[second_largest_index] -= max_nonzero_d
                                 max_nonzero_d = 0
-                            else:#待填充值大于列那个值
+                            else:  #待填充值大于列那个值
                                 copied_matrix[max_p][second_largest_index] += column_differ[second_largest_index]
                                 max_nonzero_d -= column_differ[second_largest_index]
                                 column_differ_copy[second_largest_index] = 0  #该列剩余的差值
 
-            else:#如果列需求小于被填充值
-                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1: #如果是最后一次循环，则直接填充
+            else:  #如果列需求小于被填充值
+                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  #如果是最后一次循环，则直接填充
                     copied_matrix[max_p][max_to_stuff_index] += column_differ[max_to_stuff_index]
-                else: #如果不是最后一次，则依次填充
-                    if max_p != max_to_stuff_index: #先判断如果不是对角线，就一直填充，直到填充值为0或带
+                else:  #如果不是最后一次，则依次填充
+                    if max_p != max_to_stuff_index:  #先判断如果不是对角线，就一直填充，直到填充值为0或带
                         copied_matrix[max_p][max_to_stuff_index] += column_differ[max_to_stuff_index]
-                        max_nonzero_d -= column_differ[max_to_stuff_index]# 新的待填充值
-                        column_differ[max_to_stuff_index] = 0# 该列剩余的差值
+                        max_nonzero_d -= column_differ[max_to_stuff_index]  # 新的待填充值
+                        column_differ[max_to_stuff_index] = 0  # 该列剩余的差值
                         while max_nonzero_d > 0 and np.count_nonzero(column_differ) != 0:
                             # column_differ[max_to_stuff_index] = np.iinfo(np.int32).min
                             second_largest_index = np.argmax(column_differ)
@@ -458,13 +464,13 @@ def stuffing_max(matrix):
                                     column_differ[second_largest_index] = np.iinfo(np.int32).min
 
 
-                    else: #如果是对角线，就换第二大的位置
+                    else:  #如果是对角线，就换第二大的位置
                         column_differ_copy = np.copy(column_differ)
 
                         while max_nonzero_d > 0 and np.count_nonzero(column_differ_copy) != 0:
                             if column_differ_copy[max_p] != 0 and np.count_nonzero(column_differ_copy) == 1:
                                 column_differ_copy[max_p] = column_differ[max_p]
-                                if column_differ[max_p]>=max_nonzero_d:
+                                if column_differ[max_p] >= max_nonzero_d:
                                     copied_matrix[max_p][max_p] += max_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                     column_differ_copy[max_p] -= max_nonzero_d
                                     max_nonzero_d = 0
@@ -484,7 +490,7 @@ def stuffing_max(matrix):
                                 max_nonzero_d -= column_differ[second_largest_index]
                                 column_differ_copy[second_largest_index] = 0  # 该列剩余的差值
                 # 根据索引信息找到在原数组中的索引
-        else: #flag_column == False
+        else:  #flag_column == False
             max_to_stuff_index = np.argmax(row_differ)  # 获取行最大值的索引
             if row_differ[max_to_stuff_index] > max_nonzero_d:  # 如果需求大于被填充值
                 if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  # 如果是最后一次循环，则直接填充
@@ -492,13 +498,13 @@ def stuffing_max(matrix):
                 else:  # 如果不是最后一次，则依次填充
                     if max_p != max_to_stuff_index:
                         copied_matrix[max_to_stuff_index][max_p] += max_nonzero_d  # 列的差值大于待填充值， 直接填充待填充值
-                    else:#如果是对角线
+                    else:  #如果是对角线
                         row_differ_copy = np.copy(row_differ)
 
                         while max_nonzero_d > 0 and np.count_nonzero(row_differ_copy) != 0:
                             if row_differ_copy[max_p] != 0 and np.count_nonzero(row_differ_copy) == 1:
                                 row_differ_copy[max_p] = row_differ[max_p]
-                                if row_differ[max_p]>=max_nonzero_d:
+                                if row_differ[max_p] >= max_nonzero_d:
                                     copied_matrix[max_p][max_p] += max_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                     row_differ_copy[max_p] -= max_nonzero_d
                                     max_nonzero_d = 0
@@ -518,15 +524,15 @@ def stuffing_max(matrix):
                                 max_nonzero_d -= row_differ[second_largest_index]
                                 row_differ_copy[second_largest_index] = 0  # 该列剩余的差值
 
-            else:#如果需求小于等于被填充值
-                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1: #如果是最后一次循环，则直接填充
+            else:  #如果需求小于等于被填充值
+                if np.count_nonzero(row_differ) == 1 or np.count_nonzero(column_differ) == 1:  #如果是最后一次循环，则直接填充
                     copied_matrix[max_to_stuff_index][max_p] += row_differ[max_to_stuff_index]
-                else: #如果不是最后一次，则依次填充
-                    if max_p != max_to_stuff_index: #先判断如果不是对角线，不是就一直填充，直到填充值为0或带
+                else:  #如果不是最后一次，则依次填充
+                    if max_p != max_to_stuff_index:  #先判断如果不是对角线，不是就一直填充，直到填充值为0或带
                         copied_matrix[max_to_stuff_index][max_p] += row_differ[max_to_stuff_index]
-                        max_nonzero_d -= row_differ[max_to_stuff_index]# 新的待填充值
-                        row_differ[max_to_stuff_index] = 0# 该列剩余的差值
-                        row_d_copy = np.copy(row_differ) #最开始的差值
+                        max_nonzero_d -= row_differ[max_to_stuff_index]  # 新的待填充值
+                        row_differ[max_to_stuff_index] = 0  # 该列剩余的差值
+                        row_d_copy = np.copy(row_differ)  #最开始的差值
                         while max_nonzero_d > 0 and np.count_nonzero(row_differ) != 0:
                             # row_differ[max_to_stuff_index] = np.iinfo(np.int32).min
                             if np.count_nonzero(row_differ) == 1:
@@ -561,7 +567,7 @@ def stuffing_max(matrix):
                             # row_differ[second_largest_index] = np.iinfo(np.int32).min
 
 
-                    else: #如果是对角线，就换第二大的位置
+                    else:  #如果是对角线，就换第二大的位置
                         row_differ_copy = np.copy(row_differ)
 
                         while max_nonzero_d > 0 and np.count_nonzero(row_differ_copy) != 0:
@@ -569,7 +575,7 @@ def stuffing_max(matrix):
                             if row_differ_copy[max_p] != 0 and np.count_nonzero(row_differ_copy) == 1:
                                 row_differ_copy[max_p] = row_differ[max_p]
 
-                                if row_differ[max_p]>=max_nonzero_d:
+                                if row_differ[max_p] >= max_nonzero_d:
                                     copied_matrix[max_p][max_p] += max_nonzero_d  # 为列的差值大于待填充值， 直接填充待填充值
                                     row_differ_copy[max_p] -= max_nonzero_d
                                     max_nonzero_d = 0
@@ -590,6 +596,7 @@ def stuffing_max(matrix):
                                 row_differ_copy[second_largest_index] = 0  # 该列剩余的差值
 
     return copied_matrix
+
 
 # def stuffing_new_min(matrix):
 #     copied_matrix = np.copy(matrix)
@@ -990,6 +997,7 @@ def Bvn_composition(stuffing):
     permutation_matrix, coefficient = bvn.bvn(t, 1000)
     return permutation_matrix, coefficient
 
+
 # 按比例分配
 def OXC_connect_proportion(matrix, p, c):
     symmetric_matrix = make_symmetric(matrix)
@@ -1000,8 +1008,8 @@ def OXC_connect_proportion(matrix, p, c):
     rack_num = tf.round(inform_c * (Np / 2))  # 需要的矩阵数
     if rack_num[0][0] == 0:
         rack_num = tf.tensor_scatter_nd_update(rack_num, [[0, i] for i in range(Np // 2)], tf.ones((Np // 2,)))
-        rack_num = rack_num[:, :Np//2]
-        p = p[:, :Np//2, :, :]
+        rack_num = rack_num[:, :Np // 2]
+        p = p[:, :Np // 2, :, :]
 
     if tf.reduce_sum(rack_num) >= Np / 2:
         sum_ = tf.constant(0, dtype=tf.float32)
@@ -1011,11 +1019,11 @@ def OXC_connect_proportion(matrix, p, c):
                 count = i + 1
                 break
             if (Np / 2) - 1 < sum_ < (Np / 2):
-                sliced_rack_num = rack_num[0, :i + 1]#取出累加的这几个元素
+                sliced_rack_num = rack_num[0, :i + 1]  #取出累加的这几个元素
                 # 计算结果
-                value_ = (Np / 2) - tf.reduce_sum(sliced_rack_num)#求出差距
-                rack_num = tf.tensor_scatter_nd_update(rack_num, tf.constant([[0, i + 1]]), [value_])#赋值给下一个元素
-                count = i + 2#如果出现小数的情况则多取一个元素，因此+2
+                value_ = (Np / 2) - tf.reduce_sum(sliced_rack_num)  #求出差距
+                rack_num = tf.tensor_scatter_nd_update(rack_num, tf.constant([[0, i + 1]]), [value_])  #赋值给下一个元素
+                count = i + 2  #如果出现小数的情况则多取一个元素，因此+2
                 break
         p_new = p[:, :count, :, :]  # 用于填充的的矩阵
         rack_new = rack_num[:, :count]  # 每个矩阵对应的个数
@@ -1054,7 +1062,8 @@ def OXC_connect_proportion(matrix, p, c):
         count_num = 0
         while n_inter:
             p_matrix = p_new[0][_]
-            oxc_indices = [tuple(sublist) for sublist in tf.where(tf.not_equal(p_matrix, 0)).numpy()]  # 找出permutation矩阵中的非零元素并返回索引
+            oxc_indices = [tuple(sublist) for sublist in
+                           tf.where(tf.not_equal(p_matrix, 0)).numpy()]  # 找出permutation矩阵中的非零元素并返回索引
             sorted_oxc_indices = [tuple(sorted(pair)) for pair in oxc_indices]
             for connect in sorted_oxc_indices:
                 connection_matrix[connect] += 1
@@ -1093,7 +1102,7 @@ def OXC_connect_proportion(matrix, p, c):
                         copied_matrix[:, row_index] = -1
                 else:  # 如果有剩余值
                     x, y = np.unravel_index(np.argmax(remain_matrix), remain_matrix.shape)
-                    if x != y :
+                    if x != y:
                         connection_matrix[x][y] += 1
                         connection_matrix[y][x] += 1
                         remain_matrix[:, y] = -1  # 将列的值赋为0
@@ -1124,6 +1133,7 @@ def OXC_connect_proportion(matrix, p, c):
 
     return connection_matrix
 
+
 # #全走一遍再按比例
 def OXC_connect_all(matrix, p, c):
     symmetric_matrix = make_symmetric(matrix)
@@ -1131,9 +1141,9 @@ def OXC_connect_all(matrix, p, c):
     p1 = tf.identity(p)
     connection_matrix = np.zeros((R_S, R_S))
     rack_num1 = tf.ones_like(c)
-    sum_c = tf.reduce_sum(c) #系数之和
-    inform_c = c / sum_c #系数比例
-    rack_num = tf.round(inform_c * (Np/2)) #需要的矩阵数
+    sum_c = tf.reduce_sum(c)  #系数之和
+    inform_c = c / sum_c  #系数比例
+    rack_num = tf.round(inform_c * (Np / 2))  #需要的矩阵数
     if Np / 2 > tf.reduce_sum(rack_num1):
         rack_num = tf.concat([rack_num1, rack_num], axis=1)
         p = tf.concat([p, p1], axis=1)
@@ -1147,11 +1157,11 @@ def OXC_connect_all(matrix, p, c):
             if sum_ == (Np / 2):
                 count = i + 1
                 break
-            if (Np / 2)-1 < sum_ < (Np / 2):
-                sliced_rack_num = rack_num[0, :i+1]
+            if (Np / 2) - 1 < sum_ < (Np / 2):
+                sliced_rack_num = rack_num[0, :i + 1]
                 # 计算结果
                 value_ = (Np / 2) - tf.reduce_sum(sliced_rack_num)
-                rack_num = tf.tensor_scatter_nd_update(rack_num, tf.constant([[0, i+1]]), [value_])
+                rack_num = tf.tensor_scatter_nd_update(rack_num, tf.constant([[0, i + 1]]), [value_])
                 count = i + 2
                 break
         p_new = p[:, :count, :, :]  # 用于填充的的矩阵
@@ -1187,16 +1197,17 @@ def OXC_connect_all(matrix, p, c):
     flag_int = True
     for _, n in enumerate(rack_new[0]):
         n_inter = int(n)
-        n_decimal = n-int(n)
+        n_decimal = n - int(n)
         count_num = 0
         while n_inter:
             p_matrix = p_new[0][_]
-            oxc_indices = [tuple(sublist) for sublist in tf.where(tf.not_equal(p_matrix, 0)).numpy()]#找出permutation矩阵中的非零元素并返回索引
+            oxc_indices = [tuple(sublist) for sublist in
+                           tf.where(tf.not_equal(p_matrix, 0)).numpy()]  #找出permutation矩阵中的非零元素并返回索引
             sorted_oxc_indices = [tuple(sorted(pair)) for pair in oxc_indices]
             for connect in sorted_oxc_indices:
                 connection_matrix[connect] += 1
-            count_num += 1 #用完一个矩阵加一
-            if count_num==n_inter:#当用的矩阵数量等于该矩阵的系数所对应的矩阵个数时跳出，取另一个矩阵，接着循环n次
+            count_num += 1  #用完一个矩阵加一
+            if count_num == n_inter:  #当用的矩阵数量等于该矩阵的系数所对应的矩阵个数时跳出，取另一个矩阵，接着循环n次
                 break
         if n_decimal:
             flag_int = False
@@ -1210,12 +1221,12 @@ def OXC_connect_all(matrix, p, c):
             #     if sum_ != 48:
             #         flag_connect_number = 0
             #判断是否有数据没有连接
-            non_zero_indices = (symmetric_matrix > 0) & (connection_matrix == 0)#查看是否存在有数据但没有连接的情况
-            remain_matrix = np.zeros_like(symmetric_matrix)#存在剩余需求
-            remain_matrix[non_zero_indices] = symmetric_matrix[non_zero_indices]#剩余位置的需求
+            non_zero_indices = (symmetric_matrix > 0) & (connection_matrix == 0)  #查看是否存在有数据但没有连接的情况
+            remain_matrix = np.zeros_like(symmetric_matrix)  #存在剩余需求
+            remain_matrix[non_zero_indices] = symmetric_matrix[non_zero_indices]  #剩余位置的需求
             remain_matrix = np.triu(remain_matrix)
-            for i in range(int(R_S/2)):
-                if np.all(remain_matrix == -1):#如果没有剩余数据
+            for i in range(int(R_S / 2)):
+                if np.all(remain_matrix == -1):  #如果没有剩余数据
                     if np.all(copied_matrix == -1):
                         break
                     else:
@@ -1228,9 +1239,9 @@ def OXC_connect_all(matrix, p, c):
                         copied_matrix[row_index, :] = -1
                         copied_matrix[col_index, :] = -1  # 将列的值赋为0
                         copied_matrix[:, row_index] = -1
-                else:#如果有剩余值
+                else:  #如果有剩余值
                     x, y = np.unravel_index(np.argmax(remain_matrix), remain_matrix.shape)
-                    if x != y :
+                    if x != y:
                         connection_matrix[x][y] += 1
                         connection_matrix[y][x] += 1
                         remain_matrix[:, y] = -1  # 将列的值赋为0
@@ -1356,6 +1367,7 @@ def find_paths(matrix, start, end):
                     queue.append((neighbor, path + [neighbor]))
     return paths
 
+
 #多余绕转 sorted order
 # def TE(inter_data, oxc_connect_matrix):
 #     percent_ = {}
@@ -1443,7 +1455,6 @@ def find_paths(matrix, start, end):
 #     return percent_, max_MLU, mean_MLU
 
 
-
 def TE_all(inter_data, oxc_connect_matrix):
     percent_ = {}
     B_matrix = oxc_connect_matrix * B  # 带宽供应矩阵
@@ -1475,7 +1486,7 @@ def TE_all(inter_data, oxc_connect_matrix):
             if len(path) == 2:
                 ratio = oxc_connect_matrix[rack_n][rack_m] / sum_link_num
                 # ratio = round(1/19, 2)
-                ratio_ofdata = round(ratio,2)
+                ratio_ofdata = round(ratio, 2)
                 if ratio_ofdata == 0.0:
                     ratio_ofdata = 0.01
                 sum_ratio += ratio_ofdata
@@ -1491,7 +1502,7 @@ def TE_all(inter_data, oxc_connect_matrix):
                 # ratio = round(1/19, 2)
                 ratio = min(oxc_connect_matrix[rack_n][hop], oxc_connect_matrix[hop][rack_m]) / sum_link_num
                 # ratio = min(B_matrix[rack_n][hop], B_matrix[hop][rack_m]) / sum_b_num
-                ratio_ofdata = round(ratio,2)
+                ratio_ofdata = round(ratio, 2)
                 if ratio_ofdata == 0.0:
                     ratio_ofdata = 0.01
                 sum_ratio += ratio_ofdata
@@ -1510,14 +1521,15 @@ def TE_all(inter_data, oxc_connect_matrix):
         if (rack_n, rack_m) not in percent_:
             percent_[(rack_n, rack_m)] = []
         percent_[(rack_n, rack_m)].append(-1)
-# 计算MLU：
+    # 计算MLU：
     B_ = oxc_connect_matrix * B - B_matrix
-    MLU_matrix = np.divide(B_, oxc_connect_matrix * B, out=np.full_like(B_, np.nan), where=oxc_connect_matrix * B!=0)
+    MLU_matrix = np.divide(B_, oxc_connect_matrix * B, out=np.full_like(B_, np.nan), where=oxc_connect_matrix * B != 0)
     min_MLU = np.nanmin(MLU_matrix)
     max_MLU = np.nanmax(MLU_matrix)
     mean_MLU = np.nanmean(MLU_matrix)
 
     return percent_, max_MLU, mean_MLU
+
 
 # non_zeros order  B_sum
 def TE_new(inter_data, oxc_connect_matrix):
@@ -1529,8 +1541,8 @@ def TE_new(inter_data, oxc_connect_matrix):
     # values = inter_data[nonzero_indices]
     # indices = np.column_stack(nonzero_indices)
     # sorted_indices = indices[np.argsort(values)[::-1]]
-    for rack_n, rack_m in zip(nonzero_indices[0], nonzero_indices[1]):#取出需要传输的数据
-    # for rack_n, rack_m in zip(where[0], where[1]):
+    for rack_n, rack_m in zip(nonzero_indices[0], nonzero_indices[1]):  #取出需要传输的数据
+        # for rack_n, rack_m in zip(where[0], where[1]):
         # if rack_n == 5:
         #     pdb.set_trace()
         sum_ratio = 0
@@ -1540,7 +1552,7 @@ def TE_new(inter_data, oxc_connect_matrix):
         B_num = []
         B_copy = copy.copy(B_matrix[rack_n][rack_m])
         data = inter_data[rack_n][rack_m] - B_matrix[rack_n][rack_m]
-        if data > 0:#如果大于0则绕转
+        if data > 0:  #如果大于0则绕转
             B_matrix[rack_n][rack_m] = 0
             paths = find_paths(oxc_connect_matrix, rack_n, rack_m)  # 找到n和m间的所有路径
             for path in paths:
@@ -1566,7 +1578,7 @@ def TE_new(inter_data, oxc_connect_matrix):
                         else:
                             hop = path[1]
                             ratio_of_data = oxc_connect_matrix[rack_n][rack_m] / sum_link_num
-                            ratio_of_interdata = round((B_copy + ratio_of_data*data) / inter_data[rack_n][rack_m], 2)
+                            ratio_of_interdata = round((B_copy + ratio_of_data * data) / inter_data[rack_n][rack_m], 2)
                             if ratio_of_interdata == 0.0:
                                 ratio_of_interdata = 0.01
                             sum_ratio += ratio_of_interdata
@@ -1580,13 +1592,14 @@ def TE_new(inter_data, oxc_connect_matrix):
                                 percent_[(rack_n, rack_m)].append([hop, ratio_of_interdata])
                     if len(path) == 3:
                         hop = path[1]
-                        ratio_of_data = min(oxc_connect_matrix[rack_n][hop], oxc_connect_matrix[hop][rack_m]) / sum_link_num
+                        ratio_of_data = min(oxc_connect_matrix[rack_n][hop],
+                                            oxc_connect_matrix[hop][rack_m]) / sum_link_num
                         ratio_of_interdata = round(ratio_of_data * data / inter_data[rack_n][rack_m], 2)
                         if ratio_of_interdata == 0.0:
                             ratio_of_interdata = 0.01
                         sum_ratio += ratio_of_interdata
                         if sum_ratio > 1:
-                            ratio_of_interdata = round(1 - (sum_ratio-ratio_of_interdata), 2)
+                            ratio_of_interdata = round(1 - (sum_ratio - ratio_of_interdata), 2)
                         if ratio_of_interdata == 0.0:
                             break
                         else:
@@ -1640,7 +1653,7 @@ def TE_new(inter_data, oxc_connect_matrix):
                             if (rack_n, rack_m) not in percent_:
                                 percent_[(rack_n, rack_m)] = []
                             percent_[(rack_n, rack_m)].append([hop, ratio_of_interdata])
-        else:#否则直连
+        else:  #否则直连
             B_matrix[rack_n][rack_m] -= inter_data[rack_n][rack_m]
             if (rack_n, rack_m) not in percent_:
                 percent_[(rack_n, rack_m)] = []
@@ -1653,13 +1666,14 @@ def TE_new(inter_data, oxc_connect_matrix):
         if (rack_n, rack_m) not in percent_:
             percent_[(rack_n, rack_m)] = []
         percent_[(rack_n, rack_m)].append(-1)
-# 计算MLU：
+    # 计算MLU：
     B_ = oxc_connect_matrix * B - B_matrix
-    MLU_matrix = np.divide(B_, oxc_connect_matrix * B, out=np.full_like(B_, np.nan), where=oxc_connect_matrix * B!=0)
+    MLU_matrix = np.divide(B_, oxc_connect_matrix * B, out=np.full_like(B_, np.nan), where=oxc_connect_matrix * B != 0)
     min_MLU = np.nanmin(MLU_matrix)
     max_MLU = np.nanmax(MLU_matrix)
     mean_MLU = np.nanmean(MLU_matrix)
     return percent_, max_MLU, mean_MLU, MLU_matrix, B_matrix
+
 
 #original Link_sum
 def TE(inter_data, oxc_connect_matrix):
@@ -1670,7 +1684,7 @@ def TE(inter_data, oxc_connect_matrix):
     # values = inter_data[nonzero_indices]
     # indices = np.column_stack(nonzero_indices)
     # sorted_indices = indices[np.argsort(values)[::-1]]
-    for rack_n, rack_m in zip(nonzero_indices[0], nonzero_indices[1]):#取出需要传输的数据
+    for rack_n, rack_m in zip(nonzero_indices[0], nonzero_indices[1]):  #取出需要传输的数据
         # if rack_n == 5:
         #     pdb.set_trace()
         sum_ratio = 0
@@ -1679,7 +1693,7 @@ def TE(inter_data, oxc_connect_matrix):
         link_num = []
         B_copy = copy.copy(B_matrix[rack_n][rack_m])
         data = inter_data[rack_n][rack_m] - B_matrix[rack_n][rack_m]
-        if data > 0:#如果大于0则绕转
+        if data > 0:  #如果大于0则绕转
             B_matrix[rack_n][rack_m] = 0
             paths = find_paths(oxc_connect_matrix, rack_n, rack_m)  # 找到n和m间的所有路径
             for path in paths:
@@ -1717,7 +1731,7 @@ def TE(inter_data, oxc_connect_matrix):
                         ratio_of_interdata = 0.01
                     sum_ratio += ratio_of_interdata
                     if sum_ratio > 1:
-                        ratio_of_interdata = round(1 - (sum_ratio-ratio_of_interdata), 2)
+                        ratio_of_interdata = round(1 - (sum_ratio - ratio_of_interdata), 2)
                     if ratio_of_interdata == 0.0:
                         break
                     else:
@@ -1726,7 +1740,7 @@ def TE(inter_data, oxc_connect_matrix):
                         if (rack_n, rack_m) not in percent_:
                             percent_[(rack_n, rack_m)] = []
                         percent_[(rack_n, rack_m)].append([hop, ratio_of_interdata])
-        else:#否则直连
+        else:  #否则直连
             B_matrix[rack_n][rack_m] -= inter_data[rack_n][rack_m]
             if (rack_n, rack_m) not in percent_:
                 percent_[(rack_n, rack_m)] = []
@@ -1739,9 +1753,9 @@ def TE(inter_data, oxc_connect_matrix):
         if (rack_n, rack_m) not in percent_:
             percent_[(rack_n, rack_m)] = []
         percent_[(rack_n, rack_m)].append(-1)
-# 计算MLU：
+    # 计算MLU：
     B_ = oxc_connect_matrix * B - B_matrix
-    MLU_matrix = np.divide(B_, oxc_connect_matrix * B, out=np.full_like(B_, np.nan), where=oxc_connect_matrix * B!=0)
+    MLU_matrix = np.divide(B_, oxc_connect_matrix * B, out=np.full_like(B_, np.nan), where=oxc_connect_matrix * B != 0)
     min_MLU = np.nanmin(MLU_matrix)
     max_MLU = np.nanmax(MLU_matrix)
     mean_MLU = np.nanmean(MLU_matrix)
@@ -1759,7 +1773,7 @@ def get_matrix_new(size):
     list_out = list(range(size))
     for i in list_in:
         output = random.choice(list_out)
-        while output==i:
+        while output == i:
             output = random.choice(list_out)
         input = i
         random_matrix[input][output] = np.random.randint(40, 80)
@@ -1774,7 +1788,7 @@ def get_matrix_new(size):
     # 在每个位置上随机选择一个数字，并与对应位置的随机元素相乘
     for i in range(size):
         for j in range(size):
-            if 40<=random_matrix[i, j]<=60:
+            if 40 <= random_matrix[i, j] <= 60:
                 random_multiplier = np.random.choice(multipliers1)
                 random_matrix[i, j] *= random_multiplier
                 random_matrix[i, j] *= 2
@@ -1797,7 +1811,7 @@ def get_matrix(size):
     # 在每个位置上随机选择一个数字，并与对应位置的随机元素相乘
     for i in range(size):
         for j in range(size):
-            if 30<=random_matrix[i, j]<=50:
+            if 30 <= random_matrix[i, j] <= 50:
                 random_multiplier = np.random.choice(multipliers1)
                 random_matrix[i, j] *= random_multiplier
                 random_matrix[i, j] *= 2
@@ -1809,6 +1823,7 @@ def get_matrix(size):
                 random_matrix[i, j] = 0
     return random_matrix
 
+
 def format_nested_list(data):
     if isinstance(data, list):
         formatted_sublists = [format_nested_list(sublist) for sublist in data]
@@ -1817,9 +1832,9 @@ def format_nested_list(data):
         return str(data)
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     R_S = 256
-    Np = 255 ##
+    Np = 255  ##
     B = 100
     # matrix = np.array([[0, 480, 180, 480, 50],
     #                    [75, 0, 75, 75, 75],
@@ -1830,7 +1845,7 @@ if __name__=="__main__":
     # matrix = get_matrix(R_S)
     # np.savetxt('128_x2_new/bvn/data_matrix_30_60.txt', matrix, fmt='%d')
     matrix = np.loadtxt('256/bvn/data_matrix_30_60_new.txt', dtype=int)
-   # print("生成的矩阵:", matrix)
+    # print("生成的矩阵:", matrix)
     #计算每行和每列的和
     # row_sums = np.sum(matrix, axis=1)
     # col_sums = np.sum(matrix, axis=0)
@@ -1928,7 +1943,6 @@ if __name__=="__main__":
     inter_symmetric = make_symmetric(matrix)
     print('对称后的流量矩阵：', inter_symmetric)
 
-
     ## 选择效果最好的填充方式
     D_stuffing1 = stuffing_min(inter_symmetric)
 
@@ -1972,7 +1986,7 @@ if __name__=="__main__":
 
     print('填充后的矩阵:', D_stuffing)
 
-    print('填充后对角线的值：', np.trace(D_stuffing))#确保无对角线填充
+    print('填充后对角线的值：', np.trace(D_stuffing))  #确保无对角线填充
     #
     ## 分解
     p, c = Bvn_composition(D_stuffing)

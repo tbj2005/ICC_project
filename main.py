@@ -1,5 +1,5 @@
 import numpy as np
-
+import bvn
 import Schedule_part
 
 
@@ -28,6 +28,8 @@ def job_ring(fj, ufj, local_solution, single_traffic, pod, port):
                 data_matrix_job[ps_local][j] += single_traffic[i]
                 data_matrix_job[j][ps_local] += single_traffic[i]
         data_matrix_all += data_matrix_job[i]
+    for i in ufj:
+        bvn_compose = bvn.matrix_decompose(data_matrix_all, pod)
 
 
 # TPE 方案
