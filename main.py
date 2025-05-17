@@ -4,9 +4,10 @@ import Schedule_part
 
 
 # 确定业务成环方案
-def job_ring(fj, ufj, local_solution, single_traffic, pod, port):
+def job_ring(fj, ufj, local_solution, single_traffic, sum_traffic, pod, port):
     """
     确定业务成环方案
+    :param sum_traffic: 各业务总流量
     :param fj: 固定拓扑业务索引
     :param ufj: 环拓扑业务索引
     :param local_solution: 业务放置方案
@@ -28,8 +29,14 @@ def job_ring(fj, ufj, local_solution, single_traffic, pod, port):
                 data_matrix_job[ps_local][j] += single_traffic[i]
                 data_matrix_job[j][ps_local] += single_traffic[i]
         data_matrix_all += data_matrix_job[i]
-    for i in ufj:
-        bvn_compose = bvn.matrix_decompose(data_matrix_all, pod)
+    sum_traffic_ufj = np.array([sum_traffic[i] if i in ufj else 0 for i in range(len(sum_traffic))])
+    for i in range(len(ufj)):
+        job_index = np.argmax(sum_traffic_ufj)
+        data_matrix_stuff = bvn.solve_target_matrix(data_matrix_all, pod)
+        bvn_compose, bvn_sum = bvn.matrix_decompose(data_matrix_all, data_matrix_stuff, pod, 0.8, 1)
+        worker = local_solution[job_index][0]
+        for j in worker:
+            
 
 
 # TPE 方案

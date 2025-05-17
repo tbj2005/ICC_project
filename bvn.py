@@ -225,28 +225,39 @@ def diagonal_zero_stuff(raw_matrix, size):
     return matrix + add_matrix
 
 
-def matrix_decompose(matrix, size):
+def matrix_decompose(data_matrix, matrix, size, threshold, num):
     """
     矩阵分解策略
+    :param data_matrix:
     :param matrix:
     :param size:
+    :param threshold: 分解数
+    :param num: 分解矩阵的最大个数
     :return:
     """
     decompose_matrix = []
     use_matrix = copy.deepcopy(matrix)
     use_matrix = use_matrix.astype(np.float64)
     finish_data = np.zeros([size, size])
+    use_data_rate = 0
+    count = 0
     while 1:
         # 第一轮分解，无需填充
         max_matrix = max_component(use_matrix, size)
         max_matrix = max_matrix.astype(np.float64)
-        if np.linalg.det(max_matrix) == 0:
+        if count == num and num > 0:
+            break
+        if np.max(max_matrix) == 0:
+            break
+        if use_data_rate > threshold:
             break
         else:
             decompose_matrix.append(max_matrix)
             use_matrix -= max_matrix
             finish_data += max_matrix
-    return decompose_matrix
+            use_data_rate = np.sum(np.minimum(finish_data, data_matrix)) / np.sum(data_matrix)
+            count += 1
+    return decompose_matrix, finish_data
 
 
 # matrix_size = 4
