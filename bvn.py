@@ -4,6 +4,8 @@ import time
 import LP_stuff
 from scipy.optimize import linear_sum_assignment
 from scipy.optimize import linprog
+from scipy.sparse import csr_matrix
+from scipy.sparse.csgraph import connected_components
 
 
 def solve_target_matrix(matrix, size):
@@ -225,6 +227,17 @@ def diagonal_zero_stuff(raw_matrix, size):
     return matrix + add_matrix
 
 
+def is_strongly_connected_scipy(adj_matrix):
+    n = adj_matrix.shape[0]
+    if n == 0:
+        return True
+
+    # 转换为稀疏矩阵（仅关心是否有连接）
+    graph = csr_matrix((adj_matrix > 0).astype(int))
+    n_components, _ = connected_components(graph, directed=True, connection='strong')
+    return n_components == 1  # 强连通分量是否为1
+
+
 def matrix_decompose(data_matrix, matrix, size, threshold, num):
     """
     矩阵分解策略
@@ -243,13 +256,13 @@ def matrix_decompose(data_matrix, matrix, size, threshold, num):
     count = 0
     while 1:
         # 第一轮分解，无需填充
-        max_matrix = max_component(use_matrix, size)
-        max_matrix = max_matrix.astype(np.float64)
         if count == num and num > 0:
             break
+        max_matrix = max_component(use_matrix, size)
+        max_matrix = max_matrix.astype(np.float64)
         if np.max(max_matrix) == 0:
             break
-        if use_data_rate > threshold:
+        if use_data_rate > threshold and is_strongly_connected_scipy(finish_data):
             break
         else:
             decompose_matrix.append(max_matrix)
@@ -258,7 +271,6 @@ def matrix_decompose(data_matrix, matrix, size, threshold, num):
             use_data_rate = np.sum(np.minimum(finish_data, data_matrix)) / np.sum(data_matrix)
             count += 1
     return decompose_matrix, finish_data
-
 
 # matrix_size = 4
 # matrix_test = np.random.randint(0, 100, size=(matrix_size, matrix_size))  # 生成随机正整数矩阵，取值范围为1到10
