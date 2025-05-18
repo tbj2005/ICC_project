@@ -865,7 +865,7 @@ def transform(job_set, solution, pod_num):
     return worker_node, ps_n, rar, ps, ep
 
 
-def non_conflict(local_solution):
+def non_conflict(local_solution, pod_number):
     pod_local = [[] for _ in range(pod_number)]
     for i in range(len(local_solution)):
         worker_set = np.array([k for k in range(pod_number) if local_solution[i][1][k] > 0])
@@ -886,6 +886,7 @@ def non_conflict(local_solution):
     print(pod_local)
     non_conflict_set = []
     pod_conflict_set = []
+    job_number = len(local_solution)
     for i in range(job_number):
         len_set = len(non_conflict_set)
         worker_set = set([k for k in range(pod_number) if i in pod_local[k]])

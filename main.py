@@ -50,9 +50,6 @@ def job_ring(fj, ufj, local_solution, single_traffic, sum_traffic, pod):
 
 
 # TPE 方案
-def transmit():
-
-
 def tpe(sum_data_matrix, port, pod):
     """
     tpe 策略
@@ -63,8 +60,15 @@ def tpe(sum_data_matrix, port, pod):
     """
     data_matrix_stuff, _ = bvn.solve_target_matrix(sum_data_matrix, pod)
     bvn_compose, bvn_sum = bvn.matrix_decompose(sum_data_matrix, data_matrix_stuff, pod, 0.8, - 1)
-    reserve_compose = sum_data_matrix - bvn_sum
+    delta_compose = sum_data_matrix - bvn_sum
+    stuff_compose = np.where(delta_compose > 0)
+    reserve_compose = np.where(delta_compose < 0)
+    non_link = np.where(bvn_sum > 0, 0, 1) - np.eye(pod)
+    row, col = np.nonzero(non_link == 1)
+    for i in range(len(row)):
 
+
+ 
 # 分组方案
 
 
