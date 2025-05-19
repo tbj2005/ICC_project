@@ -117,6 +117,63 @@ def max_min_weight_path_dijkstra_no_cycle(adj_matrix, start, end):
     return None, []  # 不可达
 
 
+def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_port, traffic_size, t_threshold):
+    """
+    二分查找理想时间
+    :param t_threshold:
+    :param traffic_size:
+    :param sum_matrix:
+    :param band_per_port:
+    :param t_low:
+    :param t_high:
+    :param job_matrix:
+    :param link_matrix:
+    :return:
+    """
+    while 1:
+        sum_matrix_edit = copy.deepcopy(sum_matrix)
+        job_matrix_edit = copy.deepcopy(job_matrix)
+        if t_high - t_low <= t_threshold:
+            return job_matrix_edit
+        t_mid = (t_low + t_high) / 2
+        ideal_matrix = t_mid * band_per_port * link_matrix
+        delta_matrix = ideal_matrix - sum_matrix_edit
+        stuff_decompose = np.where(delta_matrix > 0, delta_matrix, 0)
+        reserve_decompose = np.where(delta_matrix < 0, delta_matrix, 0)
+        reverse_row, reverse_col = np.argsort(reserve_decompose)
+        job_index_sort = np.argsort(traffic_size)
+        for i in range(np.count_nonzero(reserve_decompose > 0)):
+            row, col = reverse_row[i], reverse_col[i]
+            job_set_link = link_job[row][col]
+            for j in range(len(job_index_sort)):
+                job_index = job_index_sort[j]
+                value = job_matrix_edit[job_index][row][col]
+                if job_index in job_set_link:
+                    if reserve_decompose[row][col] <= 0:
+                        break
+                    _, path = max_min_weight_path_dijkstra_no_cycle(delta_matrix, row, col)
+                    flag = 0
+                    for k in range(len(path) - 1):
+                        if stuff_decompose[path[k]][path[k + 1]] < value:
+                            flag = 1
+                            break
+                    if flag == 1:
+                        break
+                    else:
+                        job_matrix_edit[row][col] = 0
+                        for k in range(len(path) - 1):
+                            stuff_decompose[path[k]][path[k + 1]] -= value
+                            job_matrix_edit[path[k]][path[k + 1]] += value
+                        reserve_decompose[row][col] -= value
+                        continue
+            if reserve_decompose[row][col] > 0:
+                t_low = t_mid
+                break
+        t_high = t_mid
+
+
+
+
 def tpe(job_matrix, job_link_index, port, pod, num_bvn, band_per_port, single_traffic):
     """
     tpe 策略
@@ -160,7 +217,7 @@ def tpe(job_matrix, job_link_index, port, pod, num_bvn, band_per_port, single_tr
                 sum_data_edit[job_index][row][col] -= job_matrix[job_index][row][col]
     transmission_times = np.where(sum_data_edit > 0, sum_data_edit / link_matrix, 0) / band_per_port
     t_ideal_high = np.max(transmission_times)  # 取最慢的链路
-
+    binary_search()
     print(1)
 
 
