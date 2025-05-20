@@ -1,4 +1,5 @@
 import copy
+import warnings
 
 import numpy as np
 import bvn
@@ -47,14 +48,17 @@ def job_ring(fj, ufj, local_solution, single_traffic, sum_traffic, pod):
             for v in range(len(worker)):
                 if u != v:
                     worker_matrix[u][v] = sum_bvn[worker[u]][worker[v]]
-                    link_job_index[u][v].append(job_index)
                 if u == v:
                     worker_matrix[u][v] = - np.inf
-        row_ind, col_ind = linear_sum_assignment(worker_matrix, maximize=True)
-        data_matrix_single = np.zeros([pod, pod])
-        for u in range(len(row_ind)):
-            data_matrix_single[worker[row_ind[u]]][worker[col_ind[u]]] = single_traffic[job_index]
-        data_matrix_job[job_index] = data_matrix_single
+        if np.shape(worker_matrix)[0] == 1:
+            data_matrix_job[job_index] = np.zeros([pod, pod])
+        else:
+            row_ind, col_ind = linear_sum_assignment(worker_matrix, maximize=True)
+            data_matrix_single = np.zeros([pod, pod])
+            for u in range(len(row_ind)):
+                data_matrix_single[worker[row_ind[u]]][worker[col_ind[u]]] = single_traffic[job_index]
+                link_job_index[worker[row_ind[u]]][worker[col_ind[u]]].append(job_index)
+            data_matrix_job[job_index] = data_matrix_single
         sum_traffic_ufj[job_index] = -1
         data_matrix_all += data_matrix_job[job_index]
     return data_matrix_job, link_job_index
@@ -117,9 +121,11 @@ def max_min_weight_path_dijkstra_no_cycle(adj_matrix, start, end):
     return None, []  # 不可达
 
 
-def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_port, traffic_size, t_threshold):
+def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_port, traffic_size, t_threshold,
+                  job_link_match):
     """
     二分查找理想时间
+    :param job_link_match:
     :param t_threshold:
     :param traffic_size:
     :param sum_matrix:
@@ -130,27 +136,29 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
     :param link_matrix:
     :return:
     """
+    job_matrix_out = copy.deepcopy(job_matrix)
+    sum_matrix_out = copy.deepcopy(job_matrix)
     while 1:
+        if t_high - t_low <= t_threshold:
+            return job_matrix_out, sum_matrix_out
         sum_matrix_edit = copy.deepcopy(sum_matrix)
         job_matrix_edit = copy.deepcopy(job_matrix)
-        if t_high - t_low <= t_threshold:
-            return job_matrix_edit
         t_mid = (t_low + t_high) / 2
         ideal_matrix = t_mid * band_per_port * link_matrix
         delta_matrix = ideal_matrix - sum_matrix_edit
         stuff_decompose = np.where(delta_matrix > 0, delta_matrix, 0)
-        reserve_decompose = np.where(delta_matrix < 0, delta_matrix, 0)
-        reverse_row, reverse_col = np.argsort(reserve_decompose)
-        job_index_sort = np.argsort(traffic_size)
+        reserve_decompose = np.where(delta_matrix < 0, - delta_matrix, 0)
+        reverse_row, reverse_col = sort_indices_desc(reserve_decompose, np.count_nonzero(reserve_decompose))
+        job_index_sort = np.argsort(- np.array(traffic_size))
         for i in range(np.count_nonzero(reserve_decompose > 0)):
             row, col = reverse_row[i], reverse_col[i]
-            job_set_link = link_job[row][col]
+            job_set_link = job_link_match[row][col]
             for j in range(len(job_index_sort)):
+                if reserve_decompose[row][col] <= 0:
+                    continue
                 job_index = job_index_sort[j]
                 value = job_matrix_edit[job_index][row][col]
                 if job_index in job_set_link:
-                    if reserve_decompose[row][col] <= 0:
-                        break
                     _, path = max_min_weight_path_dijkstra_no_cycle(delta_matrix, row, col)
                     flag = 0
                     for k in range(len(path) - 1):
@@ -160,18 +168,20 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
                     if flag == 1:
                         break
                     else:
-                        job_matrix_edit[row][col] = 0
+                        job_matrix_edit[job_index][row][col] = 0
                         for k in range(len(path) - 1):
                             stuff_decompose[path[k]][path[k + 1]] -= value
-                            job_matrix_edit[path[k]][path[k + 1]] += value
+                            job_matrix_edit[job_index][path[k]][path[k + 1]] += value
+                            sum_matrix_edit[path[k]][path[k + 1]] -= value
                         reserve_decompose[row][col] -= value
+                        sum_matrix_edit[row][col] -= value
                         continue
             if reserve_decompose[row][col] > 0:
                 t_low = t_mid
                 break
         t_high = t_mid
-
-
+        job_matrix_out = copy.deepcopy(job_matrix_edit)
+        sum_matrix_out = copy.deepcopy(sum_matrix_edit)
 
 
 def tpe(job_matrix, job_link_index, port, pod, num_bvn, band_per_port, single_traffic):
@@ -200,28 +210,100 @@ def tpe(job_matrix, job_link_index, port, pod, num_bvn, band_per_port, single_tr
     no_link_index_row, no_link_index_col = np.where(flow_no_link == 1)
     ideal_data_matrix = t_ideal_low * link_matrix * band_per_port
     delta_compose = ideal_data_matrix - sum_data_matrix
+    stuff_compose = np.where(bool_link == 1, delta_compose, - np.inf)
     sum_data_edit = copy.deepcopy(sum_data_matrix)
     job_traffic_sort = np.argsort(-1 * np.array(single_traffic))
     for i in range(len(job_matrix)):
         job_index = job_traffic_sort[i]
         for j in range(len(no_link_index_row)):
             row, col = no_link_index_row[j], no_link_index_col[j]
-            if job_matrix[i][row][col] == 0:
+            if job_matrix[job_index][row][col] == 0:
                 continue
             else:
-                _, path = max_min_weight_path_dijkstra_no_cycle(delta_compose, row, col)
+                _, path = max_min_weight_path_dijkstra_no_cycle(stuff_compose, row, col)
                 for k in range(len(path) - 1):
-                    job_matrix_edit[job_index][path[k]][path[k + 1]] = job_matrix[job_index][row][col] + 0
-                    sum_data_edit += job_matrix[job_index][row][col]
+                    job_matrix_edit[job_index][path[k]][path[k + 1]] += job_matrix[job_index][row][col] + 0
+                    sum_data_edit[path[k]][path[k + 1]] += job_matrix[job_index][row][col]
+                    stuff_compose[path[k]][path[k + 1]] -= job_matrix[job_index][row][col]
                 job_matrix_edit[job_index][row][col] = 0
-                sum_data_edit[job_index][row][col] -= job_matrix[job_index][row][col]
-    transmission_times = np.where(sum_data_edit > 0, sum_data_edit / link_matrix, 0) / band_per_port
+                sum_data_edit[row][col] -= job_matrix[job_index][row][col]
+    link_row, link_col = np.where(link_matrix > 0)
+    transmission_times = np.zeros([pod, pod])
+    for i in range(len(link_row)):
+        transmission_times[link_row[i]][link_col[i]] = (sum_data_edit[link_row[i]][link_col[i]] /
+                                                        (band_per_port * link_matrix[link_row[i]][link_col[i]]))
     t_ideal_high = np.max(transmission_times)  # 取最慢的链路
-    binary_search()
-    print(1)
+    job_matrix_output, sum_matrix_output = binary_search(t_ideal_low, t_ideal_high, job_matrix, sum_data_matrix,
+                                                         link_matrix, band_per_port, single_traffic, 1e-5,
+                                                         job_link_index)
+    return job_matrix_output, sum_matrix_output
 
 
 # 分组方案
+def transport_time(data, link_matrix, band_per_port):
+    """
+
+    :param band_per_port:
+    :param data:
+    :param link_matrix:
+    :return:
+    """
+    flow_row, flow_col = np.where(link_matrix > 0)
+    t = 0
+    for i in range(len(flow_row)):
+        row, col = flow_row[i], flow_col[i]
+        t_link = data[row][col] / (link_matrix[row][col] * band_per_port)
+        if t_link > t:
+            t = t_link
+    return t
+
+
+def iteration_time(job_matrix, link_matrix, pod, band_per_port, long_group, short_group, long_train, short_train):
+    """
+
+    :param job_matrix:
+    :param link_matrix:
+    :param pod:
+    :param band_per_port:
+    :param long_group:
+    :param short_group:
+    :param long_train:
+    :param short_train:
+    :return:
+    """
+    data_long = np.zeros([pod, pod])
+    data_short = np.zeros([pod, pod])
+    for i in long_group:
+        data_long += job_matrix[i]
+    for i in short_group:
+        data_short += job_matrix[i]
+    long_flow = transport_time(data_long, link_matrix, band_per_port)
+    short_flow = transport_time(data_short, link_matrix, band_per_port)
+    long_bool = 0
+    short_bool = 0
+    if short_train > long_flow:
+        short_bool = 1
+    if long_train > short_flow:
+        long_bool = 1
+
+
+def group(job_matrix, t_train, band_per_port, pod, link_matrix):
+    """
+    分组策略执行
+    :param link_matrix:
+    :param job_matrix:
+    :param t_train:
+    :param band_per_port:
+    :param pod:
+    :return:
+    """
+    train_sort_index = np.argsort(t_train)
+    short_group = [train_sort_index[k] for k in range(len(job_matrix) - 1)]
+    t_train_short = t_train[train_sort_index[len(job_matrix) - 2]]
+    long_group = [train_sort_index[len(job_matrix) - 1]]
+    t_train_short = t_train[train_sort_index[len(job_matrix) - 1]]
+    while 1:
+
 
 
 # 主函数
