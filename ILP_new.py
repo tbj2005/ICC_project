@@ -13,7 +13,7 @@ def sub_group(group):
     return sub
 
 
-def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, t_recon, data_per_worker, port_num):
+def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_num):
     """
     ILP求解代码
     :param port_num: 每个pod的OXC端口数目
