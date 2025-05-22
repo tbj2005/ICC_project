@@ -1,5 +1,6 @@
 import copy
 import time
+import ILP_new
 
 import numpy as np
 import bvn
@@ -11,21 +12,68 @@ from scipy.sparse.csgraph import connected_components
 
 
 # 确定业务成环方案
-def job_ring(fj, ufj, local_solution, single_traffic, sum_traffic, pod):
+def extract_sub_matrix(matrix, indices):
+    """
+    从方阵中提取指定行和列组成的新方阵。
+
+    Parameters:
+        matrix (np.ndarray): 输入的方阵。
+        indices (list): 需要提取的行和列的索引列表。
+
+    Returns:
+        np.ndarray: 提取后的新方阵。
+    """
+    # 使用 np.ix_ 生成行和列的索引网格
+    row_col_indices = np.ix_(indices, indices)
+    # 提取子矩阵
+    sub_matrix = matrix[row_col_indices]
+    return sub_matrix
+
+
+def expand_sub_matrix(sub_matrix, n, indices):
+    """
+    将子矩阵的值填充回一个全零的 n x n 矩阵的指定位置。
+
+    Parameters:
+        sub_matrix (np.ndarray): 输入的子矩阵。
+        n (int): 原始方阵的维度。
+        indices (list): 子矩阵对应的行和列的索引列表。
+
+    Returns:
+        np.ndarray: 填充后的 n x n 矩阵。
+    """
+    # 创建全零矩阵
+    reconstructed = np.zeros((n, n), dtype=sub_matrix.dtype)
+
+    # 使用高级索引填充子矩阵的值
+    # indices 的行和列网格
+    row_indices = np.array(indices).reshape(-1, 1)  # 列向量
+    col_indices = np.array(indices)  # 行向量
+
+    # 将 sub_matrix 的值填充到 reconstructed 的指定位置
+    reconstructed[row_indices, col_indices] = sub_matrix
+
+    return reconstructed
+
+
+def job_ring(job_set_i, fj, ufj, local_solution, single_traffic, sum_traffic, pod, pod_set_i):
     """
     确定业务成环方案
+    :param pod:
+    :param pod_set_i:
+    :param job_set_i:
     :param sum_traffic: 各业务总流量
     :param fj: 固定拓扑业务索引
     :param ufj: 环拓扑业务索引
     :param local_solution: 业务放置方案
     :param single_traffic: 业务单连接流量
-    :param pod: pod 数目
     :return: 返回所有业务的流量矩阵
     """
-    job_num = len(local_solution)
+    job_num = len(job_set_i)
     link_job_index = [[[] for _ in range(pod)] for _ in range(pod)]
     data_matrix_all = np.zeros(([pod, pod]))
     data_matrix_job = np.array([np.zeros([pod, pod]) for _ in range(job_num)])
+    time5 = time.time()
     for i in fj:
         ps_local = local_solution[i][0]
         worker = [k for k in range(pod) if local_solution[i][1][k] > 0]
@@ -38,18 +86,26 @@ def job_ring(fj, ufj, local_solution, single_traffic, sum_traffic, pod):
                 link_job_index[j][ps_local].append(i)
                 link_job_index[ps_local][j].append(i)
         data_matrix_all += data_matrix_job[i]
-    sum_traffic_ufj = np.array([sum_traffic[i] if i in ufj else 0 for i in range(len(sum_traffic))])
+    sum_traffic_ufj = np.array([sum_traffic[i] if i in ufj else 0 for i in job_set_i])
+    time6 = time.time()
+    print("fj", time6 - time5)
     for i in range(len(ufj)):
         job_index = np.argmax(sum_traffic_ufj)
-        data_matrix_stuff, _ = bvn.solve_target_matrix(data_matrix_all, pod)
-        bvn_compose, bvn_sum = bvn.matrix_decompose(data_matrix_all, data_matrix_stuff, pod, 0.8, - 1)
+        data_matrix_block = extract_sub_matrix(data_matrix_all, pod_set)
+        time8 = time.time()
+        data_matrix_stuff, _ = bvn.solve_target_matrix(data_matrix_block, len(pod_set_i))
+        time9 = time.time()
+        bvn_compose, bvn_sum = bvn.matrix_decompose(data_matrix_block, data_matrix_stuff, len(pod_set_i), 0.8, 3)
+        time10 = time.time()
+        # print(i, time9 - time8, time10 - time9)
         sum_bvn = sum(bvn_compose)
+        sum_bvn_reconstruct = expand_sub_matrix(sum_bvn, pod, pod_set)
         worker = [k for k in range(pod) if local_solution[job_index][1][k] > 0]
         worker_matrix = np.zeros([len(worker), len(worker)])
         for u in range(len(worker)):
             for v in range(len(worker)):
                 if u != v:
-                    worker_matrix[u][v] = sum_bvn[worker[u]][worker[v]]
+                    worker_matrix[u][v] = sum_bvn_reconstruct[worker[u]][worker[v]]
                 if u == v:
                     worker_matrix[u][v] = - np.inf
         if np.shape(worker_matrix)[0] == 1:
@@ -63,6 +119,8 @@ def job_ring(fj, ufj, local_solution, single_traffic, sum_traffic, pod):
             data_matrix_job[job_index] = data_matrix_single
         sum_traffic_ufj[job_index] = -1
         data_matrix_all += data_matrix_job[job_index]
+    time7 = time.time()
+    print("ufj", time7 - time6)
     return data_matrix_job, link_job_index
 
 
@@ -458,7 +516,7 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group):
 
 # 主函数
 
-job_number = 500
+job_number = 50
 job1 = Schedule_part.generate_job(job_number)
 all_job_index = [job1[i][0] for i in range(0, len(job1))]
 single_link_out, sum_traffic_out = Schedule_part.traffic_count(job1)
@@ -466,24 +524,30 @@ usage = 0.4
 iter_num = 10
 flop = 275
 train_time = Schedule_part.job_set_train(job1, flop, usage)
-pod_number = 64
-b_link = 30
+pod_number = 16
+b_link = 40
 port_num = 8
 solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 512, 4)
-f_job = [i for i in range(len(fix_job)) if fix_job[i] == 1]
-uf_job = [i for i in range(len(fix_job)) if fix_job[i] == 0]
-time1 = time.time()
-data_matrix, link_job = job_ring(f_job, uf_job, solution_out, single_link_out, sum_traffic_out, pod_number)
-time2 = time.time()
-print(time2 - time1)
-data_matrix, _, link_matrix_end = tpe(data_matrix, link_job, port_num, pod_number, 4, b_link, single_link_out)
-time3 = time.time()
-print(time3 - time2)
-g1, g2 = group(data_matrix, train_time, b_link, pod_number, link_matrix_end)
-time4 = time.time()
-print(g1, g2)
-print(time4 - time3)
-train_g1 = [train_time[i] for i in g1]
-train_g2 = [train_time[i] for i in g2]
-t_iter = iteration_time(data_matrix, link_matrix_end, pod_number, b_link, g1, g2, max(train_g1), max(train_g2))
-print(t_iter)
+job_set, pod_set = Schedule_part.non_conflict(solution_out, pod_number)
+for i in range(len(job_set)):
+    f_job = [i for i in job_set if fix_job[i] == 1]
+    uf_job = [i for i in job_set if fix_job[i] == 0]
+    pod_sort = copy.deepcopy(pod_set[i])
+    pod_sort.sort()
+    time1 = time.time()
+    data_matrix, link_job = job_ring(job_set[i], f_job, uf_job, solution_out, single_link_out, sum_traffic_out, pod_sort)
+    time2 = time.time()
+    print(time2 - time1)
+    data_matrix, _, link_matrix_end = tpe(data_matrix, link_job, port_num, pod_number, 4, b_link, single_link_out)
+    time3 = time.time()
+    print(time3 - time2)
+    g1, g2 = group(data_matrix, train_time, b_link, pod_number, link_matrix_end)
+    time4 = time.time()
+    print(g1, "\n", g2)
+    print(time4 - time3)
+    train_g1 = [train_time[i] for i in g1]
+    train_g2 = [train_time[i] for i in g2]
+    t_iter = iteration_time(data_matrix, link_matrix_end, pod_number, b_link, g1, g2, max(train_g1), max(train_g2))
+    print(t_iter)
+# ILP_new.ilp_new(solution_out, fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
+# port_num)
