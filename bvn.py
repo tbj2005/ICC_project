@@ -87,6 +87,68 @@ def solve_target_matrix(matrix, size):
     return target_matrix, s
 
 
+def solve_target_matrix_optimized(matrix, size):
+    """
+    优化后的求解函数，保持相同功能但提高速度。
+    """
+    assert matrix.shape == (size, size), "输入矩阵必须是方阵"
+    assert np.all(np.diag(matrix) == 0), "输入矩阵的对角线元素必须全为0"
+
+    # 变量：非对角线元素（按行展开） + s（行和）
+    num_vars = size * (size - 1) + 1
+    c = np.zeros(num_vars)
+    c[-1] = 1  # 最小化 s
+
+    # 预计算非对角线元素的索引
+    row_indices, col_indices = np.where(~np.eye(size, dtype=bool))
+    var_indices = np.arange(size * (size - 1)).reshape(size, size - 1)
+
+    # 构造行约束矩阵 - 向量化方法
+    A_eq_rows = np.zeros((size, num_vars))
+    for i in range(size):
+        cols = [j for j in range(size) if j != i]
+        var_idx = [var_indices[i, j - (1 if j > i else 0)] for j in cols]
+        A_eq_rows[i, var_idx] = 1
+    A_eq_rows[:, -1] = -1  # -s 项
+
+    # 构造列约束矩阵 - 向量化方法 (去掉最后一列)
+    A_eq_cols = np.zeros((size - 1, num_vars))
+    for j in range(size - 1):
+        rows = [i for i in range(size) if i != j]
+        var_idx = [var_indices[i, j - (1 if j > i else 0)] for i in rows]
+        A_eq_cols[j, var_idx] = 1
+    A_eq_cols[:, -1] = -1  # -s 项
+
+    # 合并等式约束
+    A_eq = np.vstack([A_eq_rows, A_eq_cols])
+    b_eq = np.zeros(A_eq.shape[0])
+
+    # 元素下限约束 - 向量化构造
+    A_ub = np.zeros((size * (size - 1), num_vars))
+    diag_mask = ~np.eye(size, dtype=bool)
+    A_ub[np.arange(size * (size - 1)), np.arange(size * (size - 1))] = -1
+    b_ub = -matrix[diag_mask].flatten()
+
+    # 求解 - 使用更高效的求解器参数
+    res = linprog(
+        c, A_ub=A_ub, b_ub=b_ub, A_eq=A_eq, b_eq=b_eq,
+        bounds=(0, None), method='highs',
+        options={"disp": False, "time_limit": 60}
+    )
+
+    if not res.success:
+        raise ValueError("线性规划求解失败: " + res.message)
+
+    # 构造结果矩阵
+    target_matrix = np.zeros((size, size))
+    for i, j in zip(row_indices, col_indices):
+        idx = var_indices[i, j - (1 if j > i else 0)]
+        target_matrix[i, j] = res.x[idx]
+    s = res.x[-1]
+
+    return target_matrix, s
+
+
 def stuffing_min(matrix, R_S):
     copied_matrix = np.copy(matrix)
     while True:
