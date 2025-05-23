@@ -69,12 +69,10 @@ def job_ring(job_set_i, fj, ufj, local_solution, single_traffic, sum_traffic, po
     :param single_traffic: 业务单连接流量
     :return: 返回所有业务的流量矩阵
     """
-    job_num = len(job_set_i)
     link_job_index = [[[] for _ in range(pod)] for _ in range(pod)]
     data_matrix_all = np.zeros(([pod, pod]))
-    data_matrix_job = np.array([np.zeros([pod, pod]) for _ in range(job_num)])
+    data_matrix_job = np.array([np.zeros([pod, pod]) for _ in range(len(local_solution))])
     time5 = time.time()
-    k = 0
     for i in fj:
         ps_local = local_solution[i][0]
         worker = [k for k in range(pod) if local_solution[i][1][k] > 0]
@@ -82,17 +80,16 @@ def job_ring(job_set_i, fj, ufj, local_solution, single_traffic, sum_traffic, po
             if j == ps_local:
                 continue
             else:
-                data_matrix_job[k][ps_local][j] += single_traffic[i]
-                data_matrix_job[k][j][ps_local] += single_traffic[i]
+                data_matrix_job[i][ps_local][j] += single_traffic[i]
+                data_matrix_job[i][j][ps_local] += single_traffic[i]
                 link_job_index[j][ps_local].append(i)
                 link_job_index[ps_local][j].append(i)
-        data_matrix_all += data_matrix_job[k]
-        k += 1
-    sum_traffic_ufj = np.array([sum_traffic[i] if i in ufj else 0 for i in job_set_i])
+        data_matrix_all += data_matrix_job[i]
+    sum_traffic_ufj = np.array([sum_traffic[i] for i in job_set_i if i in ufj])
     time6 = time.time()
     print("fj", time6 - time5)
     for i in range(len(ufj)):
-        job_index = np.argmax(sum_traffic_ufj)
+        job_index = ufj[np.argmax(sum_traffic_ufj)]
         data_matrix_block = extract_sub_matrix(data_matrix_all, pod_set_i)
         time8 = time.time()
         data_matrix_stuff, _ = bvn.solve_target_matrix(data_matrix_block, len(pod_set_i))
@@ -116,10 +113,17 @@ def job_ring(job_set_i, fj, ufj, local_solution, single_traffic, sum_traffic, po
             data_matrix_single = np.zeros([pod, pod])
             for u in range(len(row_ind)):
                 data_matrix_single[worker[row_ind[u]]][worker[col_ind[u]]] = single_traffic[job_index]
-                link_job_index[worker[row_ind[u]]][worker[col_ind[u]]].append(job_index)
+                # link_job_index[worker[row_ind[u]]][worker[col_ind[u]]].append(job_index)
+            data_matrix_single_zip = extract_sub_matrix(data_matrix_single, pod_set_i)
+            data_matrix_single_zip = sub_ring_edit(data_matrix_single_zip, len(pod_set_i))
+            data_matrix_single = expand_sub_matrix(data_matrix_single_zip, pod, pod_set_i)
+            row_ind_edit, col_ind_edit = np.where(data_matrix_single > 0)
+            for u in range(len(row_ind_edit)):
+                link_job_index[row_ind_edit[u]][col_ind_edit[u]].append(job_index)
             data_matrix_job[job_index] = data_matrix_single
-        sum_traffic_ufj[job_index] = -1
+        sum_traffic_ufj[np.argmax(sum_traffic_ufj)] = -1
         data_matrix_all += data_matrix_job[job_index]
+
     time7 = time.time()
     print("ufj", time7 - time6)
     return data_matrix_job, link_job_index
@@ -197,9 +201,11 @@ def max_min_weight_path_dijkstra_no_cycle(adj_matrix, start, end):
 
 
 def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_port, traffic_size, t_threshold,
-                  job_link_match):
+                  job_link_match, pod_set_b, job_set_b):
     """
     二分查找理想时间
+    :param job_set_b:
+    :param pod_set_b:
     :param job_link_match:
     :param t_threshold:
     :param traffic_size:
@@ -212,7 +218,7 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
     :return:
     """
     job_matrix_out = copy.deepcopy(job_matrix)
-    sum_matrix_out = copy.deepcopy(job_matrix)
+    sum_matrix_out = copy.deepcopy(sum_matrix)
     while 1:
         if t_high - t_low <= t_threshold:
             return job_matrix_out, sum_matrix_out
@@ -260,7 +266,8 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
 
 
 def sub_ring_edit(matrix, pod):
-    reverse_pod = [i for i in range(pod)]
+    row, _ = np.where(matrix > 0)
+    reverse_pod = [i for i in range(pod) if i in row]
     ring = []
     while 1:
         sub_ring = []
@@ -276,6 +283,9 @@ def sub_ring_edit(matrix, pod):
         reverse_pod = [i for i in reverse_pod if i not in sub_ring]
         ring.append(sub_ring)
     edit_matrix = np.zeros([pod, pod])
+    if len(ring) == 1:
+        edit_matrix = copy.deepcopy(matrix)
+        return edit_matrix
     edit_ring = []
     for i in range(len(ring)):
         edit_ring += ring[i]
@@ -305,36 +315,44 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
     job_matrix_edit = copy.deepcopy(job_matrix)
     sum_data_zip = extract_sub_matrix(sum_data_matrix, pod_set_tpe)
     data_matrix_stuff, _ = bvn.solve_target_matrix(sum_data_zip, len(pod_set_tpe))
-    bvn_compose, sum_bvn = bvn.matrix_decompose(sum_data_zip, data_matrix_stuff, pod, 0.8, num_bvn)
+    bvn_compose, sum_bvn = bvn.matrix_decompose(sum_data_zip, data_matrix_stuff, len(pod_set_tpe), 0.8, num_bvn)
     if not is_strongly_connected_scipy(sum_bvn):
         last_compose = bvn_compose[-1]
-        ring_compose = sub_ring_edit(last_compose, pod)
+        ring_compose, _ = sub_ring_edit(last_compose, len(pod_set_tpe))
         bvn_compose[-1] = ring_compose
-    link_matrix = port_allocate(bvn_compose, port, pod)
+        sum_bvn -= last_compose
+        sum_bvn += ring_compose
+    link_matrix_zip = port_allocate(bvn_compose, port, len(pod_set_tpe))
+    link_matrix = expand_sub_matrix(link_matrix_zip, pod, pod_set_tpe)
     bool_sum_data = np.where(sum_data_zip > 0, 1, 0)
-    bool_link = np.where(link_matrix > 0, 1, 0)
-    t_ideal_low = np.sum(data_matrix_stuff) / (port * pod * band_per_port)
+    bool_link = np.where(link_matrix_zip > 0, 1, 0)
+    t_ideal_low = max(np.max(np.sum(sum_data_zip, axis=1)), np.max(np.sum(sum_data_zip, axis=0))) / (port * band_per_port)
     flow_no_link = bool_sum_data - bool_link
     no_link_index_row, no_link_index_col = np.where(flow_no_link == 1)
-    ideal_data_matrix = t_ideal_low * link_matrix * band_per_port
+    ideal_data_matrix = t_ideal_low * link_matrix_zip * band_per_port
     delta_compose = ideal_data_matrix - sum_data_zip
     stuff_compose = np.where(bool_link == 1, delta_compose, - np.inf)
-    sum_data_edit = copy.deepcopy(sum_data_zip)
-    job_traffic_sort = np.argsort(-1 * np.array(single_traffic))
-    for i in range(len(job_matrix)):
-        job_index = job_traffic_sort[i]
+    sum_data_edit = copy.deepcopy(sum_data_matrix)
+    single_traffic_tpe = [single_traffic[i] for i in job_set_tpe]
+    for i in range(len(job_set_tpe)):
+        job_index = job_set_tpe[np.argmax(single_traffic_tpe)]
         for j in range(len(no_link_index_row)):
             row, col = no_link_index_row[j], no_link_index_col[j]
-            if job_matrix[job_index][row][col] == 0:
+            row_stuff, col_stuff = pod_set_tpe[row], pod_set_tpe[col]
+            if job_matrix[job_index][row_stuff][col_stuff] == 0:
                 continue
             else:
-                _, path = max_min_weight_path_dijkstra_no_cycle(stuff_compose, row, col)
+                _, path_zip = max_min_weight_path_dijkstra_no_cycle(stuff_compose, row, col)
+                path = np.zeros(len(path_zip), dtype=int)
+                for k in range(len(path_zip)):
+                    path[k] = int(pod_set_tpe[path_zip[k]])
                 for k in range(len(path) - 1):
-                    job_matrix_edit[job_index][path[k]][path[k + 1]] += job_matrix[job_index][row][col] + 0
-                    sum_data_edit[path[k]][path[k + 1]] += job_matrix[job_index][row][col]
-                    stuff_compose[path[k]][path[k + 1]] -= job_matrix[job_index][row][col]
-                job_matrix_edit[job_index][row][col] = 0
-                sum_data_edit[row][col] -= job_matrix[job_index][row][col]
+                    job_matrix_edit[job_index][path[k]][path[k + 1]] += job_matrix[job_index][row_stuff][col_stuff] + 0
+                    sum_data_edit[path[k]][path[k + 1]] += job_matrix[job_index][row_stuff][col_stuff]
+                    stuff_compose[path_zip[k]][path_zip[k + 1]] -= job_matrix[job_index][row_stuff][col_stuff]
+                job_matrix_edit[job_index][row_stuff][col_stuff] = 0
+                sum_data_edit[row_stuff][col_stuff] -= job_matrix[job_index][row_stuff][col_stuff]
+        single_traffic_tpe[np.argmax(single_traffic_tpe)] = -1
     link_row, link_col = np.where(link_matrix > 0)
     transmission_times = np.zeros([pod, pod])
     for i in range(len(link_row)):
@@ -343,7 +361,7 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
     t_ideal_high = np.max(transmission_times)  # 取最慢的链路
     job_matrix_output, sum_matrix_output = binary_search(t_ideal_low, t_ideal_high, job_matrix, sum_data_matrix,
                                                          link_matrix, band_per_port, single_traffic, 1e-5,
-                                                         job_link_index)
+                                                         job_link_index, pod_set_tpe, job_set_tpe)
     return job_matrix_output, sum_matrix_output, link_matrix
 
 
@@ -517,7 +535,7 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group):
 
 # 主函数
 
-job_number = 10
+job_number = 15
 job1 = Schedule_part.generate_job(job_number)
 all_job_index = [job1[i][0] for i in range(0, len(job1))]
 single_link_out, sum_traffic_out = Schedule_part.traffic_count(job1)
@@ -540,7 +558,7 @@ for i in range(len(job_set)):
     data_matrix, link_job = job_ring(job_set[i], f_job, uf_job, solution_out, single_link_out, sum_traffic_out, pod_number, pod_sort)
     time2 = time.time()
     print(time2 - time1)
-    data_matrix, _, link_matrix_end = tpe(job_set[i], data_matrix, link_job, port_num, pod_number, 4, b_link, single_link_out, pod_sort)
+    data_matrix, sum_job, link_matrix_end = tpe(job_set[i], data_matrix, link_job, port_num, pod_number, 4, b_link, single_link_out, pod_sort)
     time3 = time.time()
     print(time3 - time2)
     g1, g2 = group(data_matrix, train_time, b_link, pod_number, link_matrix_end)
