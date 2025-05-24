@@ -221,6 +221,7 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
     sum_matrix_out = copy.deepcopy(sum_matrix)
     while 1:
         if t_high - t_low <= t_threshold:
+            print(t_high)
             return job_matrix_out, sum_matrix_out
         sum_matrix_edit = copy.deepcopy(sum_matrix)
         job_matrix_edit = copy.deepcopy(job_matrix)
@@ -236,33 +237,32 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
             job_set_link = job_link_match[row][col]
             for j in range(len(job_index_sort)):
                 if reserve_decompose[row][col] <= 0:
-                    continue
+                    break
                 job_index = job_index_sort[j]
                 value = job_matrix_edit[job_index][row][col]
                 if job_index in job_set_link:
-                    _, path = max_min_weight_path_dijkstra_no_cycle(delta_matrix, row, col)
+                    value_path, path = max_min_weight_path_dijkstra_no_cycle(stuff_decompose, row, col)
                     flag = 0
-                    for k in range(len(path) - 1):
-                        if stuff_decompose[path[k]][path[k + 1]] < value:
-                            flag = 1
-                            break
+                    if value_path < value:
+                        flag = 1
                     if flag == 1:
-                        break
+                        continue
                     else:
                         job_matrix_edit[job_index][row][col] = 0
                         for k in range(len(path) - 1):
                             stuff_decompose[path[k]][path[k + 1]] -= value
                             job_matrix_edit[job_index][path[k]][path[k + 1]] += value
-                            sum_matrix_edit[path[k]][path[k + 1]] -= value
+                            sum_matrix_edit[path[k]][path[k + 1]] += value
                         reserve_decompose[row][col] -= value
                         sum_matrix_edit[row][col] -= value
                         continue
             if reserve_decompose[row][col] > 0:
                 t_low = t_mid
                 break
-        t_high = t_mid
-        job_matrix_out = copy.deepcopy(job_matrix_edit)
-        sum_matrix_out = copy.deepcopy(sum_matrix_edit)
+        if t_low < t_mid:
+            t_high = t_mid
+            job_matrix_out = copy.deepcopy(job_matrix_edit)
+            sum_matrix_out = copy.deepcopy(sum_matrix_edit)
 
 
 def sub_ring_edit(matrix, pod):
