@@ -606,7 +606,9 @@ def deploy_server(group, job_set, pod, pod_gpu, seg_pod_num):
             ufj[i1] = 1
             available_seg = [n for n in range(0, seg_num) if seg_pod_reserve[n] >= unit_gpu_num[i1] * job_set[i1][4]]
             if len(available_seg) == 0:
+                local_solution[i1][0] = -2
                 undeploy.append(i1)
+                continue
             seg_index = random.choice(available_seg)
             worker_node = []
             for j in range(0, job_set[i1][4]):
@@ -616,7 +618,7 @@ def deploy_server(group, job_set, pod, pod_gpu, seg_pod_num):
                     for i in range(0, len(worker_node)):
                         reverse_gpu[worker_node[i][0]] += unit_gpu_num[i1]
                         seg_pod_reserve[seg_index] += unit_gpu_num[i1]
-                        undeploy.append(i1)
+                    undeploy.append(i1)
                     worker_node = []
                     break
                 seg_reserve[max_index - seg_index * seg_pod_num] -= unit_gpu_num[i1]
@@ -632,7 +634,9 @@ def deploy_server(group, job_set, pod, pod_gpu, seg_pod_num):
             available_seg = [n for n in range(0, seg_num) if
                              seg_pod_reserve[n] >= unit_gpu_num[i1] * job_set[i1][4] + 1]
             if len(available_seg) == 0:
+                local_solution[i1][0] = -2
                 undeploy.append(i1)
+                continue
             seg_index = random.choice(available_seg)
             worker_node = []
             # for n in range(0, seg_pod_num):
@@ -663,7 +667,7 @@ def deploy_server(group, job_set, pod, pod_gpu, seg_pod_num):
                 seg_reserve[max_index - seg_index * seg_pod_num] -= unit_gpu_num[i1]
                 worker_node.append((max_index, unit_gpu_num[i1]))
             if i1 in undeploy:
-                local_solution[i1][0] = -1
+                local_solution[i1][0] = -2
                 continue
             for j in range(1, len(worker_node)):
                 local_solution[i1][1][worker_node[j][0]] += worker_node[j][1]
@@ -816,10 +820,10 @@ def generate_job(job_num):
         seq_len = np.random.choice(np.array([64, 128, 256, 512, 1024]), p=np.array([1 / 5, 1 / 5, 1 / 5, 1 / 5, 1 / 5]))
         # context = 8
         # job_para = np.random.choice(np.array([1, 3, 8, 70]), p=np.array([0.25, 0.25, 0.25]))
-        job_type = np.random.choice(np.array([0, 1]), p=np.array([1 / 2, 1 / 2]))
+        job_type = np.random.choice(np.array([1]), p=np.array([1]))
         parallel = np.random.choice(np.array([2, 4, 6]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
         if job_type == 1:
-            parallel = np.random.choice(np.array([2, 3, 4]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
+            parallel = np.random.choice(np.array([4]), p=np.array([1]))
         # token_per_batch =
         # np.random.choice(np.array([128, 256, 512, 1024, 2048]), p=np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
         unit_gpu = np.random.randint(10, 20)
@@ -883,7 +887,7 @@ def non_conflict(local_solution, pod_number):
                     if local_solution[i][1][ul] > 0 and ul != local_solution[i][0]:
                         pod_local[ul].append(i)
                 pod_local[local_solution[i][0]].append(i)
-    print(pod_local)
+    # print(pod_local)
     non_conflict_set = []
     pod_conflict_set = []
     job_number = len(local_solution)
