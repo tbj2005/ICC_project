@@ -1,0 +1,87 @@
+\ Model ICC_new_copy
+\ LP format - for model browsing. Use MPS format to capture full model detail.
+Minimize
+ 
+Subject To
+ R4: k1[0] + k2[0] = 1
+ R5: k1[1] + k2[1] = 1
+ R98: - kd_u_v[0,0,1,0] + 100000 k1[0] <= 99978.64999999999
+ R134: - kd_u_v[0,1,1,2] + 100000 k1[1] <= 99993.57000000001
+ R136: - kd_u_v[0,1,1,3] + 100000 k1[1] <= 99993.57000000001
+ R158: w_a_u_v[0,1,1,0] + 2 w_a_u_v[0,2,1,0] - kd_u_v[0,0,1,0]
+   - kd_u_v[0,1,1,0] >= 0
+ R160: w_a_u_v[0,1,1,2] + 2 w_a_u_v[0,2,1,2] - kd_u_v[0,0,1,2]
+   - kd_u_v[0,1,1,2] >= 0
+ R161: w_a_u_v[0,1,1,3] + 2 w_a_u_v[0,2,1,3] - kd_u_v[0,0,1,3]
+   - kd_u_v[0,1,1,3] >= 0
+ R190: 100000 delta_a_u_v[1,1,0] - w_a_u_v[0,1,1,0] >= 0
+ R192: 100000 delta_a_u_v[1,1,2] - w_a_u_v[0,1,1,2] >= 0
+ R193: 100000 delta_a_u_v[1,1,3] - w_a_u_v[0,1,1,3] >= 0
+ R206: 100000 delta_a_u_v[2,1,0] - w_a_u_v[0,2,1,0] >= 0
+ R208: 100000 delta_a_u_v[2,1,2] - w_a_u_v[0,2,1,2] >= 0
+ R209: 100000 delta_a_u_v[2,1,3] - w_a_u_v[0,2,1,3] >= 0
+ R366: - delta_a_u_v[1,1,0] - 2 delta_a_u_v[2,1,0] + L[1,0] = 0
+ R462: - kd_u_v[1,0,1,0] + 100000 k2[0] <= 99978.64999999999
+ R475: - kd_u_v[1,1,0,1] + 100000 k2[1] <= 99993.57000000001
+ R483: - kd_u_v[1,1,2,1] + 100000 k2[1] <= 99993.57000000001
+ R487: - kd_u_v[1,1,3,1] + 100000 k2[1] <= 99993.57000000001
+ R523: w_a_u_v[1,1,0,1] + 2 w_a_u_v[1,2,0,1] - kd_u_v[1,0,0,1]
+   - kd_u_v[1,1,0,1] >= 0
+ R526: w_a_u_v[1,1,1,0] + 2 w_a_u_v[1,2,1,0] - kd_u_v[1,0,1,0]
+   - kd_u_v[1,1,1,0] >= 0
+ R531: w_a_u_v[1,1,2,1] + 2 w_a_u_v[1,2,2,1] - kd_u_v[1,0,2,1]
+   - kd_u_v[1,1,2,1] >= 0
+ R535: w_a_u_v[1,1,3,1] + 2 w_a_u_v[1,2,3,1] - kd_u_v[1,0,3,1]
+   - kd_u_v[1,1,3,1] >= 0
+ R555: 100000 delta_a_u_v[1,0,1] - w_a_u_v[1,1,0,1] >= 0
+ R558: 100000 delta_a_u_v[1,1,0] - w_a_u_v[1,1,1,0] >= 0
+ R563: 100000 delta_a_u_v[1,2,1] - w_a_u_v[1,1,2,1] >= 0
+ R567: 100000 delta_a_u_v[1,3,1] - w_a_u_v[1,1,3,1] >= 0
+ R571: 100000 delta_a_u_v[2,0,1] - w_a_u_v[1,2,0,1] >= 0
+ R574: 100000 delta_a_u_v[2,1,0] - w_a_u_v[1,2,1,0] >= 0
+ R579: 100000 delta_a_u_v[2,2,1] - w_a_u_v[1,2,2,1] >= 0
+ R583: 100000 delta_a_u_v[2,3,1] - w_a_u_v[1,2,3,1] >= 0
+ R731: - delta_a_u_v[1,0,1] - 2 delta_a_u_v[2,0,1] + L[0,1] = 0
+ R736: - delta_a_u_v[1,1,2] - 2 delta_a_u_v[2,1,2] + L[1,2] = 0
+ R737: - delta_a_u_v[1,1,3] - 2 delta_a_u_v[2,1,3] + L[1,3] = 0
+ R739: - delta_a_u_v[1,2,1] - 2 delta_a_u_v[2,2,1] + L[2,1] = 0
+ R743: - delta_a_u_v[1,3,1] - 2 delta_a_u_v[2,3,1] + L[3,1] = 0
+ R747: L[0,1] + L[1,1] + L[2,1] + L[3,1] <= 2
+ R751: L[1,0] + L[1,1] + L[1,2] + L[1,3] <= 2
+Bounds
+ w_a_u_v[0,1,1,0] free
+ w_a_u_v[0,1,1,2] free
+ w_a_u_v[0,1,1,3] free
+ w_a_u_v[0,2,1,0] free
+ w_a_u_v[0,2,1,2] free
+ w_a_u_v[0,2,1,3] free
+ w_a_u_v[1,1,0,1] free
+ w_a_u_v[1,1,1,0] free
+ w_a_u_v[1,1,2,1] free
+ w_a_u_v[1,1,3,1] free
+ w_a_u_v[1,2,0,1] free
+ w_a_u_v[1,2,1,0] free
+ w_a_u_v[1,2,2,1] free
+ w_a_u_v[1,2,3,1] free
+ kd_u_v[0,0,1,0] free
+ kd_u_v[0,1,1,2] free
+ kd_u_v[0,1,1,3] free
+ kd_u_v[1,0,1,0] free
+ kd_u_v[1,1,0,1] free
+ kd_u_v[1,1,2,1] free
+ kd_u_v[1,1,3,1] free
+ L[0,1] free
+ L[1,0] free
+ L[1,2] free
+ L[1,3] free
+ L[2,1] free
+ L[3,1] free
+Binaries
+ delta_a_u_v[1,0,1] delta_a_u_v[1,1,0] delta_a_u_v[1,1,2]
+ delta_a_u_v[1,1,3] delta_a_u_v[1,2,1] delta_a_u_v[1,3,1]
+ delta_a_u_v[2,0,1] delta_a_u_v[2,1,0] delta_a_u_v[2,1,2]
+ delta_a_u_v[2,1,3] delta_a_u_v[2,2,1] delta_a_u_v[2,3,1] k1[0] k1[1] k2[0]
+ k2[1]
+Generals
+ L[0,1] L[1,0] L[1,1] L[1,2] L[1,3] L[2,1] L[3,1]
+End

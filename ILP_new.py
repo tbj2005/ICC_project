@@ -13,19 +13,18 @@ def sub_group(group):
     return sub
 
 
-def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_num):
+def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_num):
     """
     ILP求解代码
+    :param d:
     :param port_num: 每个pod的OXC端口数目
     :param data_per_worker:单 worker 数据量
-    :param local_solution:一个集合，内部的元素是业务的 worker 位置，各元素的结构为二元组，第一个元素为ps位置，若不用ps则为0，第二个元素为数组，存放各pod中该业务的worker数目
     :param fj:固定拓扑业务
     :param ufj:非固定拓扑业务，当前只考虑 ring
     :param t_train:业务训练时间
     :param num_job:业务数目
     :param num_pod:pod数目
     :param b_link:单连接带宽
-    :param t_recon:重构时间
     :return:
     """
     link_matrix = np.zeros([num_pod, num_pod])
@@ -41,7 +40,7 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
     t1_comm = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t1_comm")
     t2_comm = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t2_comm")
 
-    delta_a_u_v = model.addVars(2, port_num + 1, num_pod, num_pod, vtype=GRB.BINARY, name="delta_a_u_v")
+    delta_a_u_v = model.addVars(port_num + 1, num_pod, num_pod, vtype=GRB.BINARY, name="delta_a_u_v")
     w_a_u_v = model.addVars(2, port_num + 1, num_pod, num_pod, lb=0, vtype=GRB.CONTINUOUS, name="w_a_u_v")
     kd_u_v = model.addVars(2, num_job, num_pod, num_pod, lb=0, vtype=GRB.CONTINUOUS, name="kd_u_v")
     # 通信时间，只考虑 AOI 中的时间，下层时间先不管
@@ -51,7 +50,7 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
     k2 = model.addVars(num_job, vtype=GRB.BINARY, name="k2")
     r = model.addVar(vtype=GRB.BINARY, name="r")
     # r=1时说明会重构，否则不会
-    d = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.CONTINUOUS, name="d")
+    # d = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.CONTINUOUS, name="d")
     # delta_link = model.addMVar((num_pod, num_pod), vtype=GRB.INTEGER, name="delta_link")
     b_data = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.BINARY, name="b_data")
     print(t_train)
@@ -71,20 +70,23 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
     model.addConstrs(t1_comp >= k1[i] * t_train[i] for i in range(num_job))
     model.addConstrs(t2_comp >= k2[i] * t_train[i] for i in range(num_job))  # 每阶段的计算时间大于等于当阶段所有业务的计算时间
 
-    model.addConstrs(quicksum(delta_a_u_v[0, a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(quicksum(delta_a_u_v[a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(kd_u_v[0, i, u, v] >= m * k1[i] - m for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
     model.addConstrs(kd_u_v[0, i, u, v] <= M * k1[i] for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
-    model.addConstrs(d[i, u, v] - M * (1 - k1[i]) <= kd_u_v[0, i, u, v] for i in range(num_job) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(d[i, u, v] - m * (1 - k1[i]) + m >= kd_u_v[0, i, u, v] for i in range(num_job) for u in range(num_pod) for v in range(num_pod))
+    for i in range(num_job):
+        for u in range(num_pod):
+            for v in range(num_pod):
+                model.addConstr(d[i, u, v] - M * (1 - k1[i]) <= kd_u_v[0, i, u, v])
+                model.addConstr(d[i, u, v] - m * (1 - k1[i]) + m >= kd_u_v[0, i, u, v])
     model.addConstrs(quicksum(a * w_a_u_v[0, a, u, v] for a in range(port_num + 1)) >= quicksum(kd_u_v[0, i, u, v] for i in range(num_job)) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(M * delta_a_u_v[0, a, u, v] >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(m * delta_a_u_v[0, a, u, v] <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(b_link * t1_comm - M * (1 - delta_a_u_v[0, a, u, v]) <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(b_link * t1_comm - m * (1 - delta_a_u_v[0, a, u, v]) >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
-    model.addConstrs(link[u, v] == quicksum(a * delta_a_u_v[0, a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(M * delta_a_u_v[a, u, v] >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(m * delta_a_u_v[a, u, v] <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(b_link * t1_comm - M * (1 - delta_a_u_v[a, u, v]) <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(b_link * t1_comm - m * (1 - delta_a_u_v[a, u, v]) + m >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
+    model.addConstrs(link[u, v] == quicksum(a * delta_a_u_v[a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in range(num_pod))
 
     model.addConstrs(
-        quicksum(delta_a_u_v[1, a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
+        quicksum(delta_a_u_v[a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(
         kd_u_v[1, i, u, v] >= m * k2[i] - m for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
     model.addConstrs(
@@ -98,19 +100,19 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
     model.addConstrs(quicksum(a * w_a_u_v[1, a, u, v] for a in range(port_num + 1)) >= quicksum(
         kd_u_v[1, i, u, v] for i in range(num_job)) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(
-        M * delta_a_u_v[1, a, u, v] >= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in
+        M * delta_a_u_v[a, u, v] >= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in
         range(num_pod))
     model.addConstrs(
-        m * delta_a_u_v[1, a, u, v] <= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in
+        m * delta_a_u_v[a, u, v] <= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in
         range(num_pod))
     model.addConstrs(
-        t2_comm * b_link - M * (1 - delta_a_u_v[1, a, u, v]) <= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in
+        t2_comm * b_link - M * (1 - delta_a_u_v[a, u, v]) <= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in
         range(num_pod) for v in range(num_pod))
     model.addConstrs(
-        t2_comm * b_link - m * (1 - delta_a_u_v[1, a, u, v]) >= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in
+        t2_comm * b_link - m * (1 - delta_a_u_v[a, u, v]) + m >= w_a_u_v[1, a, u, v] for a in range(port_num + 1) for u in
         range(num_pod) for v in range(num_pod))
     model.addConstrs(
-        link[u, v] == quicksum(a * delta_a_u_v[1, a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in
+        link[u, v] == quicksum(a * delta_a_u_v[a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in
         range(num_pod))
 
     # model.addConstrs(t1_comm * link[u, v] * b_link >= (quicksum(d[i, u, v] * k1[i] for i in range(num_job))) for u in range(num_pod) for v in range(num_pod))
@@ -120,7 +122,7 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
     # model.addConstr(r <= quicksum(quicksum(delta_link[u, v] for u in range(num_pod)) for v in range(num_pod)))
     # model.addConstrs(r >= delta_link[u, v] for u in range(num_pod) for v in range(num_pod))
     # 判断是否需要重构
-
+    """
     for i in range(0, num_job):
         if fj[i] != 1:
             continue
@@ -132,7 +134,7 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
             if x == local_solution[i][0]:
                 model.addConstr(d[i, x, local_solution[i][0]] == 0)
                 model.addConstr(d[i, local_solution[i][0], x] == 0)
-
+    
     for i in range(num_job):
         if ufj[i] == 1:
             worker = [x for x in range(len(local_solution[i][1])) if local_solution[i][1][x] > 0]
@@ -141,7 +143,7 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
                     model.addConstr(d[i, worker[u], worker[0]] == data_per_worker[i])
                 else:
                     model.addConstr(d[i, worker[u], worker[u] + 1] == data_per_worker[i])
-            """
+            
             sub_worker = sub_group(worker)
             print(i, sub_worker)
             model.addConstrs(quicksum(b_data[i, u, v] for v in worker) == 1 for u in worker)
@@ -150,18 +152,19 @@ def ilp_new(local_solution, fj, ufj, t_train, num_job, num_pod, b_link, data_per
             for j in range(len(sub_worker)):
                 model.addConstr(quicksum(b_data[i, u, v] for v in sub_worker[j] for u in sub_worker[j]) <= len(sub_worker[j]) - 1)
             model.addConstrs(d[i, u, v] == b_data[i, u, v] * data_per_worker[i] for u in range(num_pod) for v in range(num_pod))
-            """
+    """
     # 通过放置约束非固定流量矩阵
 
-    model.addConstrs(quicksum(link[u, v] + link[v, u] for u in range(num_pod)) <= port_num for v in range(num_pod))
+    model.addConstrs(quicksum(link[u, v] for u in range(num_pod)) <= port_num for v in range(num_pod))
+    model.addConstrs(quicksum(link[u, v] for v in range(num_pod)) <= port_num for u in range(num_pod))
     model.addConstrs(link[u, u] == 0 for u in range(num_pod))
     # 连接约束
 
     model.setParam("OutputFlag", 1)
     model.Params.LogToConsole = True
     model.optimize()
-    # model.computeIIS()
-    # model.write("model1.ilp")
+    model.computeIIS()
+    model.write("model1.ilp")
     k1 = 0
     k2 = 0
     group = []
