@@ -558,7 +558,7 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group, job_set_gr
 
 # 主函数
 
-job_number = 50
+job_number = 5
 job1 = Schedule_part.generate_job(job_number)
 all_job_index = [job1[i][0] for i in range(0, len(job1))]
 single_link_out, sum_traffic_out = Schedule_part.traffic_count(job1)
@@ -566,10 +566,10 @@ usage = 0.4
 iter_num = 10
 flop = 275
 train_time = Schedule_part.job_set_train(job1, flop, usage)
-pod_number = 16
+pod_number = 4
 b_link = 40
 port_num = 2
-solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 16)
+solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 4)
 print(undeploy_out)
 all_job = [i for i in range(job_number) if i not in undeploy_out]
 sum_job_num = 0
@@ -603,7 +603,7 @@ for i in range(len(job_set)):
     print(t_iter)
     sum_job_num += len(g1) + len(g2)
     # print(data_matrix)
-    ILP_new.ilp_new(data_matrix, fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
-                    port_num)
+    ILP_new.ilp_new(fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
+                    port_num, solution_out)
 print(sum_job_num)
 

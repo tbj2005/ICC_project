@@ -1,6 +1,8 @@
 import gurobipy as gp
 from gurobipy import *
 import numpy as np
+from itertools import permutations
+from itertools import product
 
 m = 0.001
 M = 100000
@@ -13,10 +15,50 @@ def sub_group(group):
     return sub
 
 
-def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_num):
+def generate_all_possible_paths(nodes, source, destination):
+    """
+    生成从源节点到目的节点的所有可能路径（无环路）
+
+    参数:
+    nodes: 所有节点的列表（包括源和目的节点）
+    source: 源节点
+    destination: 目的节点
+
+    返回:
+    所有可能路径的列表，每条路径是一个节点序列
+    """
+    # 移除源和目的节点，得到中间节点
+    other_nodes = [n for n in nodes if n != source and n != destination]
+
+    all_paths = []
+
+    # 考虑不同长度的路径（从0个中间节点到全部中间节点）
+    for k in range(len(other_nodes) + 1):
+        # 生成所有可能的中间节点排列组合
+        for intermediates in permutations(other_nodes, k):
+            # 构建完整路径：源 + 中间节点 + 目的
+            path = [source] + list(intermediates) + [destination]
+            all_paths.append(path)
+
+    return all_paths
+
+
+def path_matrix_count(node):
+    path_matrix = np.empty([node, node], dtype=object)
+    node_list = [i for i in range(node)]
+    for u in range(node):
+        for v in range(node):
+            if u == v:
+                path_matrix[u][v] = []
+            else:
+                path_matrix[u][v] = generate_all_possible_paths(node_list, u, v)
+    return path_matrix
+
+
+def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_num, local_solution):
     """
     ILP求解代码
-    :param d:
+    :param local_solution:
     :param port_num: 每个pod的OXC端口数目
     :param data_per_worker:单 worker 数据量
     :param fj:固定拓扑业务
@@ -27,9 +69,31 @@ def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port
     :param b_link:单连接带宽
     :return:
     """
+    model = gp.Model("ICC_new")
+    p_matrix = path_matrix_count(num_pod)
+    data_ufj = []
+    z_ufg = []
+    for i in ufj:
+        worker = [k for k in range(len(local_solution[i][1])) if local_solution[i][1][k] > 0]
+        all_ring = list(permutations(worker))
+        data_matrix_all = []
+        for j in range(len(all_ring)):
+            worker_sort = list(all_ring[j])
+            worker_sort += [worker_sort[0]]
+            path_flow = []
+            for u in range(len(worker_sort) - 1):
+                path_flow.append(p_matrix[worker_sort[u]][worker_sort[u + 1]])
+            for combo in product(*path_flow):
+                data_matrix_single = np.zeros([num_pod, num_pod])
+                for k in range(len(combo)):
+                    path = combo[k]
+                    for c in range(len(path) - 1):
+                        data_matrix_single[path[c]][path[c + 1]] += data_per_worker[i]
+                data_matrix_all.append(data_matrix_single)
+        data_ufj.append(data_matrix_all)
+        z_ufg.append(model.addVars(len(data_matrix_all), vtype=GRB.BINARY, name="z_ufg"))
     link_matrix = np.zeros([num_pod, num_pod])
     d_matrix = np.array([np.zeros([num_pod, num_pod]) for _ in range(num_job)])
-    model = gp.Model("ICC_new")
     model.update()
     t_round = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t_round")
     t1 = model.addVar(lb=0, vtype=GRB.CONTINUOUS, name="t1")
@@ -50,9 +114,10 @@ def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port
     k2 = model.addVars(num_job, vtype=GRB.BINARY, name="k2")
     r = model.addVar(vtype=GRB.BINARY, name="r")
     # r=1时说明会重构，否则不会
-    # d = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.CONTINUOUS, name="d")
+    d = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.CONTINUOUS, name="d")
     # delta_link = model.addMVar((num_pod, num_pod), vtype=GRB.INTEGER, name="delta_link")
     b_data = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.BINARY, name="b_data")
+    z_job = model.add
     print(t_train)
     model.setObjective(t_round, GRB.MINIMIZE)
     model.addConstr(t_round >= t1_comm + t2_comm, name="")
@@ -122,7 +187,7 @@ def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port
     # model.addConstr(r <= quicksum(quicksum(delta_link[u, v] for u in range(num_pod)) for v in range(num_pod)))
     # model.addConstrs(r >= delta_link[u, v] for u in range(num_pod) for v in range(num_pod))
     # 判断是否需要重构
-    """
+
     for i in range(0, num_job):
         if fj[i] != 1:
             continue
@@ -134,25 +199,14 @@ def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port
             if x == local_solution[i][0]:
                 model.addConstr(d[i, x, local_solution[i][0]] == 0)
                 model.addConstr(d[i, local_solution[i][0], x] == 0)
-    
+
+    count = 0
     for i in range(num_job):
         if ufj[i] == 1:
-            worker = [x for x in range(len(local_solution[i][1])) if local_solution[i][1][x] > 0]
-            for u in range(0, len(worker)):
-                if u == len(worker) - 1:
-                    model.addConstr(d[i, worker[u], worker[0]] == data_per_worker[i])
-                else:
-                    model.addConstr(d[i, worker[u], worker[u] + 1] == data_per_worker[i])
-            
-            sub_worker = sub_group(worker)
-            print(i, sub_worker)
-            model.addConstrs(quicksum(b_data[i, u, v] for v in worker) == 1 for u in worker)
-            model.addConstrs(quicksum(b_data[i, u, v] for u in worker) == 1 for v in worker)
-            model.addConstrs(b_data[i, u, u] == 0 for u in range(num_pod))
-            for j in range(len(sub_worker)):
-                model.addConstr(quicksum(b_data[i, u, v] for v in sub_worker[j] for u in sub_worker[j]) <= len(sub_worker[j]) - 1)
-            model.addConstrs(d[i, u, v] == b_data[i, u, v] * data_per_worker[i] for u in range(num_pod) for v in range(num_pod))
-    """
+            model.addConstr(quicksum(z_ufg[count][k] for k in range(len(z_ufg[count]))) >= 1)
+            for k in range(len(z_ufg[count])):
+                for u in range()
+
     # 通过放置约束非固定流量矩阵
 
     model.addConstrs(quicksum(link[u, v] for u in range(num_pod)) <= port_num for v in range(num_pod))
@@ -191,7 +245,7 @@ def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port
         if name[:2] == "d[":
             d_data = data
             d_name = name
-            # print(d_name, d_data)
+            print(d_name, d_data)
             d_matrix[int(k2 / (num_pod * num_pod))][int((k2 % (num_pod * num_pod)) / num_pod)][k2 % num_pod] = d_data
             k2 += 1
     print("link", link_matrix)
