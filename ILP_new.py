@@ -163,8 +163,8 @@ def ilp_new(d, fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port
     model.setParam("OutputFlag", 1)
     model.Params.LogToConsole = True
     model.optimize()
-    model.computeIIS()
-    model.write("model1.ilp")
+    # model.computeIIS()
+    # model.write("model1.ilp")
     k1 = 0
     k2 = 0
     group = []
