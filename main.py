@@ -219,11 +219,12 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
     """
     job_matrix_out = copy.deepcopy(job_matrix)
     sum_matrix_out = copy.deepcopy(sum_matrix)
+    count = 0
     while 1:
         if t_high - t_low <= t_threshold:
             # print(t_high)
             print(job_matrix_out)
-            return job_matrix_out, sum_matrix_out
+            return job_matrix_out, sum_matrix_out, count
         sum_matrix_edit = copy.deepcopy(sum_matrix)
         job_matrix_edit = copy.deepcopy(job_matrix)
         t_mid = (t_low + t_high) / 2
@@ -233,6 +234,7 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
         reserve_decompose = np.where(delta_matrix < 0, - delta_matrix, 0)
         reverse_row, reverse_col = sort_indices_desc(reserve_decompose, np.count_nonzero(reserve_decompose))
         job_index_sort = np.argsort(- np.array(traffic_size))
+        flag_i = 0
         for i in range(np.count_nonzero(reserve_decompose > 0)):
             row, col = reverse_row[i], reverse_col[i]
             job_set_link = job_link_match[row][col]
@@ -261,8 +263,10 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
                         continue
             if reserve_decompose[row][col] > 0:
                 t_low = t_mid
+                flag_i = 1
                 break
-        if t_low < t_mid:
+        if flag_i == 0:
+            count += 1
             t_high = t_mid
             job_matrix_out = copy.deepcopy(job_matrix_edit)
             sum_matrix_out = copy.deepcopy(sum_matrix_edit)
@@ -367,9 +371,11 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
     print(1)
     if t_ideal_high - t_ideal_low <= t_threshold:
         return job_matrix_edit, sum_data_edit, link_matrix
-    job_matrix_output, sum_matrix_output = binary_search(t_ideal_low, t_ideal_high, job_matrix, sum_data_matrix,
+    job_matrix_output, sum_matrix_output, c = binary_search(t_ideal_low, t_ideal_high, job_matrix, sum_data_matrix,
                                                          link_matrix, band_per_port, single_traffic, t_threshold,
                                                          job_link_index, pod_set_tpe, job_set_tpe)
+    if c == 0:
+        return job_matrix_edit, sum_data_edit, link_matrix
     return job_matrix_output, sum_matrix_output, link_matrix
 
 
@@ -552,7 +558,7 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group, job_set_gr
 
 # 主函数
 
-job_number = 2
+job_number = 50
 job1 = Schedule_part.generate_job(job_number)
 all_job_index = [job1[i][0] for i in range(0, len(job1))]
 single_link_out, sum_traffic_out = Schedule_part.traffic_count(job1)
@@ -560,10 +566,10 @@ usage = 0.4
 iter_num = 10
 flop = 275
 train_time = Schedule_part.job_set_train(job1, flop, usage)
-pod_number = 4
+pod_number = 16
 b_link = 40
 port_num = 2
-solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 4)
+solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 16)
 print(undeploy_out)
 all_job = [i for i in range(job_number) if i not in undeploy_out]
 sum_job_num = 0
