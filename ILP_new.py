@@ -71,22 +71,48 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     """
     model = gp.Model("ICC_new")
     p_matrix = path_matrix_count(num_pod)
-    data_ufj = []
-    z_ufg = []
-    z_1 = [[] for i in range(len(ufj))]
-    abs_delta = [[] for i in range(len(ufj))]
-    z_ele = [[] for i in range(len(ufj))]
-    count = 0
-    for i in ufj:
-        worker = [k for k in range(len(local_solution[i][1])) if local_solution[i][1][k] > 0]
-        all_ring = list(permutations(worker))
+    data_job = []
+    z_job = []
+    z_1 = [[] for i in range(len(local_solution))]
+    abs_delta = [[] for i in range(len(local_solution))]
+    z_ele = [[] for i in range(len(local_solution))]
+    z_data_job = [[] for i in range(len(local_solution))]
+    print(data_per_worker)
+    for i in range(len(local_solution)):
         data_matrix_all = []
-        for j in range(len(all_ring)):
-            worker_sort = list(all_ring[j])
-            worker_sort += [worker_sort[0]]
+        if ufj[i] == 1:
+            worker = [k for k in range(len(local_solution[i][1])) if local_solution[i][1][k] > 0]
+            first_worker = worker[0]
+            reserve_worker = [k for k in worker if k != first_worker]
+            all_ring = list(permutations(reserve_worker))
+            all_ring = [[first_worker] + list(all_ring[k]) for k in range(len(all_ring))]
+            for j in range(len(all_ring)):
+                worker_sort = list(all_ring[j])
+                worker_sort += [worker_sort[0]]
+                path_flow = []
+                for u in range(len(worker_sort) - 1):
+                    path_flow.append(p_matrix[worker_sort[u]][worker_sort[u + 1]])
+                for combo in product(*path_flow):
+                    data_matrix_single = np.zeros([num_pod, num_pod])
+                    for k in range(len(combo)):
+                        path = combo[k]
+                        for c in range(len(path) - 1):
+                            data_matrix_single[path[c]][path[c + 1]] += data_per_worker[i]
+                    data_matrix_all.append(data_matrix_single)
+                    z_ele[i].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_ele"))
+                    z_1[i].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_1"))
+                    abs_delta[i].append(model.addVars(num_pod, num_pod, vtype=GRB.CONTINUOUS, name="abs_delta"))
+                    z_data_job[i].append(model.addVars(num_pod, num_pod, vtype=GRB.CONTINUOUS, name="z_data"))
+        if fj[i] == 1:
+            ps = local_solution[i][0]
+            worker = [k for k in range(len(local_solution[i][1])) if local_solution[i][1][k] > 0]
             path_flow = []
-            for u in range(len(worker_sort) - 1):
-                path_flow.append(p_matrix[worker_sort[u]][worker_sort[u + 1]])
+            for u in worker:
+                if ps == u:
+                    continue
+                else:
+                    path_flow.append(p_matrix[ps][u])
+                    path_flow.append(p_matrix[u][ps])
             for combo in product(*path_flow):
                 data_matrix_single = np.zeros([num_pod, num_pod])
                 for k in range(len(combo)):
@@ -94,11 +120,13 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
                     for c in range(len(path) - 1):
                         data_matrix_single[path[c]][path[c + 1]] += data_per_worker[i]
                 data_matrix_all.append(data_matrix_single)
-                z_ele[count].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_ele"))
-                z_1[count].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_1"))
-                abs_delta[count].append(model.addVars(num_pod, num_pod, vtype=GRB.CONTINUOUS, name="abs_delta"))
-        data_ufj.append(data_matrix_all)
-        z_ufg.append(model.addVars(len(data_matrix_all), vtype=GRB.BINARY, name="z_ufg"))
+                z_ele[i].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_ele"))
+                z_1[i].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_1"))
+                abs_delta[i].append(model.addVars(num_pod, num_pod, vtype=GRB.CONTINUOUS, name="abs_delta"))
+                z_data_job[i].append(model.addVars(num_pod, num_pod, vtype=GRB.CONTINUOUS, name="z_data"))
+        data_job.append(data_matrix_all)
+        z_job.append(model.addVars(len(data_matrix_all), vtype=GRB.BINARY, name="z_job"))
+        # z_data_job.append(model.addVars(len(data_matrix_all), vtype=GRB.BINARY, name="z_data_job"))
     link_matrix = np.zeros([num_pod, num_pod])
     d_matrix = np.array([np.zeros([num_pod, num_pod]) for _ in range(num_job)])
     model.update()
@@ -194,35 +222,37 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     # model.addConstrs(r >= delta_link[u, v] for u in range(num_pod) for v in range(num_pod))
     # 判断是否需要重构
 
-    for i in range(0, num_job):
-        if fj[i] != 1:
-            continue
-        for x in range(0, num_pod):
-            if x != local_solution[i][0]:
-                model.addConstr(d[i, x, local_solution[i][0]] == data_per_worker[i] * local_solution[i][1][x])
-                model.addConstr(d[i, local_solution[i][0], x] == data_per_worker[i] * local_solution[i][1][x])
-                # 通过放置约束固定流量矩阵
-            if x == local_solution[i][0]:
-                model.addConstr(d[i, x, local_solution[i][0]] == 0)
-                model.addConstr(d[i, local_solution[i][0], x] == 0)
+    # for i in range(0, num_job):
+    #     if fj[i] != 1:
+    #         continue
+    #     for x in range(0, num_pod):
+    #         if x != local_solution[i][0]:
+    #             model.addConstr(d[i, x, local_solution[i][0]] == data_per_worker[i] * local_solution[i][1][x])
+    #             model.addConstr(d[i, local_solution[i][0], x] == data_per_worker[i] * local_solution[i][1][x])
+    #             # 通过放置约束固定流量矩阵
+    #         if x == local_solution[i][0]:
+    #             model.addConstr(d[i, x, local_solution[i][0]] == 0)
+    #             model.addConstr(d[i, local_solution[i][0], x] == 0)
 
-    count = 0
     for i in range(num_job):
-        if ufj[i] == 1:
-            model.addConstr(quicksum(z_ufg[count][k] for k in range(len(z_ufg[count]))) == 1)
-            for k in range(len(z_ufg[count])):
-                for u in range(num_pod):
-                    for v in range(num_pod):
-                        model.addConstr(z_1[count][k][u][v] * (d[i, u, v] - data_ufj[count][k][u][v]) >= 0)
-                        model.addConstr(z_1[count][k][u][v] >= m * (d[i, u, v] - data_ufj[count][k][u][v]))
-                        model.addConstr(abs_delta[count][k][u][v] == (d[i, u, v] - data_ufj[count][k][u][v]) * (z_1[count][k][u][v] - (1 - z_1[count][k][u][v])))
-                        model.addConstr(z_ele[count][k][u][v] >= m * abs_delta[count][k][u][v])
-                        model.addConstr(z_ele[count][k][u][v] <= M * abs_delta[count][k][u][v])
-            model.addConstrs(m * quicksum(quicksum(z_ele[count][k][u][v] for u in range(num_pod)) for v in range(num_pod)) <= 1 - z_ufg[count][k] for k in range(len(z_ufg[count])))
-            model.addConstrs(
-                M * quicksum(quicksum(z_ele[count][k][u][v] for u in range(num_pod)) for v in range(num_pod)) >= 1 -
-                z_ufg[count][k] for k in range(len(z_ufg[count])))
-            count += 1
+        model.addConstr(quicksum(z_job[i][k] for k in range(len(z_job[i]))) == 1)
+        for k in range(len(z_job[i])):
+            for u in range(num_pod):
+                for v in range(num_pod):
+                    model.addConstr(z_data_job[i][k][u, v] <= M * z_1[i][k][u, v])
+                    model.addConstr(z_data_job[i][k][u, v] >= m * z_1[i][k][u, v] - m)
+                    model.addConstr(z_data_job[i][k][u, v] <= d[i, u, v] - m * (1 - z_1[i][k][u, v]) + m)
+                    model.addConstr(z_data_job[i][k][u, v] >= d[i, u, v] - M * (1 - z_1[i][k][u, v]))
+                    # model.addConstr(z_1[i][k][u, v] * (d[i, u, v] - data_job[i][k][u, v]) >= 0)
+                    model.addConstr(z_data_job[i][k][u, v] >= z_1[i][k][u, v] * data_job[i][k][u, v])
+                    model.addConstr(z_1[i][k][u, v] >= m * (d[i, u, v] - data_job[i][k][u, v]))
+                    model.addConstr(abs_delta[i][k][u, v] + data_job[i][k][u, v] * (2 * z_1[i][k][u, v] - 1) == 2 * z_data_job[i][k][u, v] - d[i, u, v])
+                    model.addConstr(z_ele[i][k][u, v] >= m * abs_delta[i][k][u, v])
+                    model.addConstr(z_ele[i][k][u, v] <= M * abs_delta[i][k][u, v])
+        model.addConstrs(m * quicksum(quicksum(z_ele[i][k][u, v] for u in range(num_pod)) for v in range(num_pod)) <= 1 - z_job[i][k] for k in range(len(z_job[i])))
+        model.addConstrs(
+            M * quicksum(quicksum(z_ele[i][k][u, v] for u in range(num_pod)) for v in range(num_pod)) >= 1 -
+            z_job[i][k] for k in range(len(z_job[i])))
 
     # 通过放置约束非固定流量矩阵
 
@@ -259,6 +289,12 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
             # print(link_name, link_data)
             link_matrix[int(k1 / num_pod)][k1 % num_pod] = int(link_data)
             k1 += 1
+        # if name[:1] == "z":
+        #     link_data = data
+        #     link_name = name
+        #     print(link_name, link_data)
+        #     # link_matrix[int(k1 / num_pod)][k1 % num_pod] = int(link_data)
+        #     # k1 += 1
         if name[:2] == "d[":
             d_data = data
             d_name = name

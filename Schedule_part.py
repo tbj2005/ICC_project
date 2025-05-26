@@ -820,10 +820,8 @@ def generate_job(job_num):
         seq_len = np.random.choice(np.array([64, 128, 256, 512, 1024]), p=np.array([1 / 5, 1 / 5, 1 / 5, 1 / 5, 1 / 5]))
         # context = 8
         # job_para = np.random.choice(np.array([1, 3, 8, 70]), p=np.array([0.25, 0.25, 0.25]))
-        job_type = np.random.choice(np.array([1]), p=np.array([1]))
+        job_type = np.random.choice(np.array([0, 1]), p=np.array([1 / 2, 1 / 2]))
         parallel = np.random.choice(np.array([2, 4, 6]), p=np.array([1 / 3, 1 / 3, 1 / 3]))
-        if job_type == 1:
-            parallel = np.random.choice(np.array([4]), p=np.array([1]))
         # token_per_batch =
         # np.random.choice(np.array([128, 256, 512, 1024, 2048]), p=np.array([0.2, 0.2, 0.2, 0.2, 0.2]))
         unit_gpu = np.random.randint(10, 20)
