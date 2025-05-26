@@ -566,10 +566,10 @@ usage = 0.4
 iter_num = 10
 flop = 275
 train_time = Schedule_part.job_set_train(job1, flop, usage)
-pod_number = 4
+pod_number = 3
 b_link = 40
 port_num = 2
-solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 4)
+solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 3)
 print(undeploy_out)
 all_job = [i for i in range(job_number) if i not in undeploy_out]
 sum_job_num = 0

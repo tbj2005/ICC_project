@@ -73,6 +73,10 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     p_matrix = path_matrix_count(num_pod)
     data_ufj = []
     z_ufg = []
+    z_1 = [[] for i in range(len(ufj))]
+    abs_delta = [[] for i in range(len(ufj))]
+    z_ele = [[] for i in range(len(ufj))]
+    count = 0
     for i in ufj:
         worker = [k for k in range(len(local_solution[i][1])) if local_solution[i][1][k] > 0]
         all_ring = list(permutations(worker))
@@ -90,6 +94,9 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
                     for c in range(len(path) - 1):
                         data_matrix_single[path[c]][path[c + 1]] += data_per_worker[i]
                 data_matrix_all.append(data_matrix_single)
+                z_ele[count].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_ele"))
+                z_1[count].append(model.addVars(num_pod, num_pod, vtype=GRB.BINARY, name="z_1"))
+                abs_delta[count].append(model.addVars(num_pod, num_pod, vtype=GRB.CONTINUOUS, name="abs_delta"))
         data_ufj.append(data_matrix_all)
         z_ufg.append(model.addVars(len(data_matrix_all), vtype=GRB.BINARY, name="z_ufg"))
     link_matrix = np.zeros([num_pod, num_pod])
@@ -117,7 +124,6 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     d = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.CONTINUOUS, name="d")
     # delta_link = model.addMVar((num_pod, num_pod), vtype=GRB.INTEGER, name="delta_link")
     b_data = model.addMVar((num_job, num_pod, num_pod), vtype=GRB.BINARY, name="b_data")
-    z_job = model.add
     print(t_train)
     model.setObjective(t_round, GRB.MINIMIZE)
     model.addConstr(t_round >= t1_comm + t2_comm, name="")
@@ -203,9 +209,20 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     count = 0
     for i in range(num_job):
         if ufj[i] == 1:
-            model.addConstr(quicksum(z_ufg[count][k] for k in range(len(z_ufg[count]))) >= 1)
+            model.addConstr(quicksum(z_ufg[count][k] for k in range(len(z_ufg[count]))) == 1)
             for k in range(len(z_ufg[count])):
-                for u in range()
+                for u in range(num_pod):
+                    for v in range(num_pod):
+                        model.addConstr(z_1[count][k][u][v] * (d[i, u, v] - data_ufj[count][k][u][v]) >= 0)
+                        model.addConstr(z_1[count][k][u][v] >= m * (d[i, u, v] - data_ufj[count][k][u][v]))
+                        model.addConstr(abs_delta[count][k][u][v] == (d[i, u, v] - data_ufj[count][k][u][v]) * (z_1[count][k][u][v] - (1 - z_1[count][k][u][v])))
+                        model.addConstr(z_ele[count][k][u][v] >= m * abs_delta[count][k][u][v])
+                        model.addConstr(z_ele[count][k][u][v] <= M * abs_delta[count][k][u][v])
+            model.addConstrs(m * quicksum(quicksum(z_ele[count][k][u][v] for u in range(num_pod)) for v in range(num_pod)) <= 1 - z_ufg[count][k] for k in range(len(z_ufg[count])))
+            model.addConstrs(
+                M * quicksum(quicksum(z_ele[count][k][u][v] for u in range(num_pod)) for v in range(num_pod)) >= 1 -
+                z_ufg[count][k] for k in range(len(z_ufg[count])))
+            count += 1
 
     # 通过放置约束非固定流量矩阵
 
