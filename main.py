@@ -200,6 +200,47 @@ def max_min_weight_path_dijkstra_no_cycle(adj_matrix, start, end):
     return None, []  # 不可达
 
 
+import heapq
+
+
+def max_min_weight_path_dijkstra_k_hops(adj_matrix, start, end, max_hops):
+    """
+    找到从start到end的路径，使得路径中的最小边权重最大，且路径跳数不超过max_hops
+
+    参数:
+        adj_matrix: 邻接矩阵，adj_matrix[u][v]表示u到v的边权重，0表示没有连接
+        start: 起始节点索引
+        end: 目标节点索引
+        max_hops: 允许的最大跳数（边数）
+
+    返回:
+        (max_min_weight, path) 元组，找不到路径时返回(None, [])
+    """
+    n = adj_matrix.shape[0]
+    # 优先队列元素: (-当前路径最小权重, 当前节点, 路径, 已用跳数)
+    max_min_heap = [(-float('inf'), start, [start], 0)]
+
+    while max_min_heap:
+        current_min_neg, u, path, hops = heapq.heappop(max_min_heap)
+        current_min = -current_min_neg
+
+        if u == end:
+            return current_min, path
+
+        # 如果已经达到最大跳数，不再继续扩展
+        if hops >= max_hops:
+            continue
+
+        for v in range(n):
+            if adj_matrix[u][v] > 0 and v not in path:  # 禁止重复访问节点
+                new_min = min(current_min, adj_matrix[u][v])
+                new_hops = hops + 1
+                heapq.heappush(max_min_heap,
+                               (-new_min, v, path + [v], new_hops))
+
+    return None, []  # 不可达
+
+
 def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_port, traffic_size, t_threshold,
                   job_link_match, pod_set_b, job_set_b):
     """
@@ -244,7 +285,7 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
                 job_index = job_index_sort[j]
                 value = job_matrix_edit[job_index][row][col]
                 if job_index in job_set_link:
-                    value_path, path = max_min_weight_path_dijkstra_no_cycle(stuff_decompose, row, col)
+                    value_path, path = max_min_weight_path_dijkstra_k_hops(stuff_decompose, row, col, 2)
                     if len(path) == 0:
                         break
                     flag = 0
@@ -351,7 +392,7 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
             if job_matrix[job_index][row_stuff][col_stuff] == 0:
                 continue
             else:
-                _, path_zip = max_min_weight_path_dijkstra_no_cycle(stuff_compose, row, col)
+                _, path_zip = max_min_weight_path_dijkstra_k_hops(stuff_compose, row, col, 2)
                 path = np.zeros(len(path_zip), dtype=int)
                 for k in range(len(path_zip)):
                     path[k] = int(pod_set_tpe[path_zip[k]])
