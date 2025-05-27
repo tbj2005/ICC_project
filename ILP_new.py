@@ -33,7 +33,7 @@ def generate_all_possible_paths(nodes, source, destination):
     all_paths = []
 
     # 考虑不同长度的路径（从0个中间节点到全部中间节点）
-    for k in range(len(other_nodes) + 1):
+    for k in range(2):
         # 生成所有可能的中间节点排列组合
         for intermediates in permutations(other_nodes, k):
             # 构建完整路径：源 + 中间节点 + 目的
