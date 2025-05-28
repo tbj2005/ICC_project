@@ -393,6 +393,8 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
                 continue
             else:
                 _, path_zip = max_min_weight_path_dijkstra_k_hops(stuff_compose, row, col, 2)
+                if len(path_zip) == 0:
+                    return -1, np.zeros([pod, pod]), -1
                 path = np.zeros(len(path_zip), dtype=int)
                 for k in range(len(path_zip)):
                     path[k] = int(pod_set_tpe[path_zip[k]])
@@ -599,7 +601,7 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group, job_set_gr
 
 # 主函数
 
-job_number = 4
+job_number = 5
 job1 = Schedule_part.generate_job(job_number)
 all_job_index = [job1[i][0] for i in range(0, len(job1))]
 single_link_out, sum_traffic_out = Schedule_part.traffic_count(job1)
@@ -609,7 +611,7 @@ flop = 275
 train_time = Schedule_part.job_set_train(job1, flop, usage)
 pod_number = 4
 b_link = 40
-port_num = 2
+port_num = 4
 solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 4)
 print(undeploy_out)
 all_job = [i for i in range(job_number) if i not in undeploy_out]
@@ -631,20 +633,23 @@ for i in range(len(job_set)):
     data_matrix, link_job = job_ring(job_set[i], f_job, uf_job, solution_out, single_link_out, sum_traffic_out, pod_number, pod_sort)
     time2 = time.time()
     # print(time2 - time1)
-    data_matrix, sum_job, link_matrix_end = tpe(job_set[i], data_matrix, link_job, port_num, pod_number, 1, b_link, single_link_out, pod_sort, 1e-5)
-    time3 = time.time()
-    # print(time3 - time2)
-    g1, g2 = group(data_matrix, train_time, b_link, pod_number, link_matrix_end, job_set[i])
-    time4 = time.time()
-    print(g1, "\n", g2)
-    # print(time4 - time3)
-    train_g1 = [train_time[i] for i in g1] + [0]
-    train_g2 = [train_time[i] for i in g2] + [0]
-    t_iter = iteration_time(data_matrix, link_matrix_end, pod_number, b_link, g1, g2, max(train_g1), max(train_g2))
-    print(t_iter)
-    sum_job_num += len(g1) + len(g2)
-    # print(data_matrix)
-    ILP_new.ilp_new(fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
-                    port_num, solution_out)
+    data_matrix, sum_job, link_matrix_end = tpe(job_set[i], data_matrix, link_job, port_num, pod_number, 3, b_link, single_link_out, pod_sort, 1e-5)
+    if np.max(sum_job) == 0:
+        print("fail")
+    else:
+        time3 = time.time()
+        # print(time3 - time2)
+        g1, g2 = group(data_matrix, train_time, b_link, pod_number, link_matrix_end, job_set[i])
+        time4 = time.time()
+        print(g1, "\n", g2)
+        # print(time4 - time3)
+        train_g1 = [train_time[i] for i in g1] + [0]
+        train_g2 = [train_time[i] for i in g2] + [0]
+        t_iter = iteration_time(data_matrix, link_matrix_end, pod_number, b_link, g1, g2, max(train_g1), max(train_g2))
+        print(t_iter)
+        sum_job_num += len(g1) + len(g2)
+        # print(data_matrix)
+        ILP_new.ilp_new(fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
+                        port_num, solution_out)
 print(sum_job_num)
 
