@@ -2,268 +2,339 @@ import numpy as np
 import networkx as nx
 from math import gcd
 from functools import reduce
-from itertools import combinations
+from typing import Dict, List, Tuple
+from collections import defaultdict
 import matplotlib.pyplot as plt
 
 
 def lcm(a, b):
-    """计算两个数的最小公倍数"""
+    """Compute least common multiple of two numbers"""
     return a * b // gcd(a, b)
 
 
 def lcm_list(numbers):
-    """计算数字列表的最小公倍数"""
+    """Compute LCM of a list of numbers"""
     return reduce(lcm, numbers, 1)
 
 
 class Job:
-    def __init__(self, name, iteration_time, communication_pattern):
+    def __init__(self, job_id: int, iteration_time: float, phases: List[Tuple[float, float, float]]):
         """
-        初始化一个具有通信模式的作业
+        重构后的Job类，使用流量大小(GB)替代带宽需求
 
-        参数:
-            name: 作业标识符
-            iteration_time: 一个训练迭代的时间(毫秒)
-            communication_pattern: 元组列表(start_time, duration, bandwidth)
-                                  表示一个迭代中的通信阶段
+        Args:
+            job_id: 作业唯一标识
+            iteration_time: 迭代总时间(ms)
+            phases: 通信阶段列表，每个阶段为(start_time, duration, data_volume)
+                   start_time: 阶段开始时间(ms)
+                   duration: 阶段持续时间(ms)
+                   data_volume: 传输数据量(GB)
         """
-        self.name = name
+        self.job_id = job_id
         self.iteration_time = iteration_time
-        self.communication_pattern = communication_pattern
-        self.time_shift = 0  # 将由调度器设置
+        self.phases = phases
+        self.time_shift = 0  # 时间偏移量
 
-    def get_bandwidth_at_time(self, t):
+    def get_bandwidth_at_time(self, t: float) -> float:
         """
-        获取时间t的带宽需求(相对于迭代开始)
+        根据流量大小和持续时间计算瞬时带宽需求(Gbps)
+        公式: 带宽(Gbps) = 数据量(GB) * 8 / 持续时间(ms)
         """
-        t = (t - self.time_shift) % self.iteration_time
-        for start, duration, bw in self.communication_pattern:
-            if start <= t < start + duration:
-                return bw
-        return 0  # 计算阶段
+        t_shifted = (t - self.time_shift) % self.iteration_time
+        for start, duration, data_vol in self.phases:
+            if start <= t_shifted < start + duration:
+                return (data_vol * 8) / (duration / 1000)  # GB->Gb, ms->s
+        return 0
 
-    def __repr__(self):
-        return f"Job({self.name}, iter={self.iteration_time}ms)"
+    def get_phase_info_at_time(self, t: float) -> Tuple[float, float]:
+        """获取当前时间的阶段信息和原始流量大小"""
+        t_shifted = (t - self.time_shift) % self.iteration_time
+        for start, duration, data_vol in self.phases:
+            if start <= t_shifted < start + duration:
+                return (data_vol, duration)
+        return (0, 0)
 
 
-class Link:
-    def __init__(self, name, capacity):
-        self.name = name
-        self.capacity = capacity
-        self.jobs = []
+class OpticalTopology:
+    """拓扑类保持不变"""
 
-    def add_job(self, job):
-        self.jobs.append(job)
+    def __init__(self, connectivity_matrix: np.ndarray):
+        self.connectivity = connectivity_matrix
+        self.num_nodes = connectivity_matrix.shape[0]
+        self.links = self._create_links()
 
-    def compute_compatibility(self, angle_precision=5):
-        """
-        使用Cassini的几何抽象计算共享此链接的作业的兼容性分数
+    def _create_links(self) -> Dict[Tuple[int, int], Dict]:
+        links = {}
+        for i in range(self.num_nodes):
+            for j in range(self.num_nodes):
+                if self.connectivity[i, j] > 0:
+                    links[(i, j)] = {
+                        'capacity': self.connectivity[i, j] * 10,  # 每条光连接10Gbps
+                        'jobs': set()
+                    }
+        return links
 
-        返回:
-            compatibility_score: 介于0(不兼容)和1(完全兼容)之间
-            time_shifts: 字典{job: optimal_time_shift}
-        """
-        if len(self.jobs) < 2:
-            return 1.0, {job: 0 for job in self.jobs}
+    def add_job_path(self, job_id: int, path: List[int]):
+        for i in range(len(path) - 1):
+            src, dst = path[i], path[i + 1]
+            if (src, dst) in self.links:
+                self.links[(src, dst)]['jobs'].add(job_id)
 
-        # 创建统一圆，周长为迭代时间的最小公倍数
-        iteration_times = [job.iteration_time for job in self.jobs]
-        unified_perimeter = lcm_list(iteration_times)
-
-        # 离散化角度(简化优化)
-        angles = np.linspace(0, 2 * np.pi, num=360 // angle_precision)
-
-        best_score = -np.inf
-        best_time_shifts = {}
-
-        # 简化优化:尝试不同的旋转组合
-        # (实际实现会使用论文表1中的优化公式)
-        for rotations in self._generate_rotation_combinations():
-            time_shifts = {}
-            excess_sum = 0
-
-            # 应用旋转并计算超额带宽
-            for i, job in enumerate(self.jobs):
-                # 将旋转角度转换为时间偏移
-                rotation_angle = rotations[i]
-                time_shift = (rotation_angle / (2 * np.pi)) * unified_perimeter
-                time_shift = time_shift % job.iteration_time
-                time_shifts[job] = time_shift
-
-            # 检查每个角度的带宽
-            for alpha in angles:
-                total_bw = 0
-                for job in self.jobs:
-                    # 将角度转换为统一圆中的时间
-                    t = (alpha / (2 * np.pi)) * unified_perimeter
-                    # 获取作业在此时间的带宽(考虑时间偏移)
-                    job_t = (t - time_shifts[job]) % job.iteration_time
-                    total_bw += job.get_bandwidth_at_time(job_t)
-
-                excess = max(0, total_bw - self.capacity)
-                excess_sum += excess / self.capacity  # 归一化
-
-            # 计算兼容性分数
-            avg_excess = excess_sum / len(angles)
-            score = 1 - avg_excess
-
-            if score > best_score:
-                best_score = score
-                best_time_shifts = time_shifts
-
-        return best_score, best_time_shifts
-
-    def _generate_rotation_combinations(self, steps=8):
-        """生成可能的旋转组合(为演示简化)"""
-        # 实际实现会替换为适当的优化
-        angles = np.linspace(0, 2 * np.pi, steps, endpoint=False)
-        for combo in combinations(angles, len(self.jobs)):
-            yield combo
+    def remove_job_path(self, job_id: int, path: List[int]):
+        for i in range(len(path) - 1):
+            src, dst = path[i], path[i + 1]
+            if (src, dst) in self.links and job_id in self.links[(src, dst)]['jobs']:
+                self.links[(src, dst)]['jobs'].remove(job_id)
 
 
 class CassiniScheduler:
-    def __init__(self):
-        self.jobs = []
-        self.links = []
-        self.affinity_graph = nx.Graph()
+    def __init__(self, topology: OpticalTopology):
+        self.topology = topology
+        self.jobs = {}
+        self.placement_candidates = []
 
-    def add_job(self, job):
-        self.jobs.append(job)
-        self.affinity_graph.add_node(job.name, type='job', obj=job)
+    def add_job(self, job: Job, path: List[int]):
+        self.jobs[job.job_id] = job
+        self.topology.add_job_path(job.job_id, path)
 
-    def add_link(self, link):
-        self.links.append(link)
-        self.affinity_graph.add_node(link.name, type='link', obj=link)
+    def remove_job(self, job_id: int, path: List[int]):
+        if job_id in self.jobs:
+            del self.jobs[job_id]
+        self.topology.remove_job_path(job_id, path)
 
-    def connect_job_to_link(self, job_name, link_name):
-        """在亲和图中连接作业和链接"""
-        self.affinity_graph.add_edge(job_name, link_name)
+    def generate_placement_candidates(self, num_candidates: int = 5):
+        """生成候选布局(与之前相同)"""
+        self.placement_candidates = []
+        for _ in range(num_candidates):
+            candidate = {}
+            for job_id, job in self.jobs.items():
+                if np.random.random() < 0.3:
+                    path_length = np.random.randint(2, 4)
+                    path = [np.random.randint(0, self.topology.num_nodes) for _ in range(path_length)]
+                else:
+                    path = self._get_current_path(job_id)
+                candidate[job_id] = path
+            self.placement_candidates.append(candidate)
 
-    def schedule(self):
-        """
-        执行Cassini调度:
-        1. 计算链路级兼容性和时间偏移
-        2. 构建亲和图
-        3. 遍历图以分配唯一时间偏移
-        """
-        # 步骤1: 计算链路级时间偏移
-        link_time_shifts = {}  # {link: {job: time_shift}}
+    def _get_current_path(self, job_id: int) -> List[int]:
+        return [0, 1, 2]  # 简化的默认路径
 
-        for link in self.links:
-            score, shifts = link.compute_compatibility()
-            print(f"链路 {link.name} 兼容性分数: {score:.2f}")
-            link_time_shifts[link] = shifts
+    def evaluate_compatibility(self, candidate: Dict[int, List[int]]) -> Tuple[float, Dict[int, float]]:
+        """评估候选布局的兼容性"""
+        temp_topology = OpticalTopology(self.topology.connectivity.copy())
+        for job_id, path in candidate.items():
+            temp_topology.add_job_path(job_id, path)
 
-            # 更新亲和图边权重
-            for job, t_shift in shifts.items():
-                if self.affinity_graph.has_edge(job.name, link.name):
-                    self.affinity_graph.edges[job.name, link.name]['weight'] = t_shift
+        affinity_graph = self._build_affinity_graph(temp_topology)
+        time_shifts = self._compute_time_shifts(affinity_graph)
 
-        # 步骤2: 使用亲和图遍历分配唯一时间偏移
-        # (论文中的算法1)
-        job_time_shifts = self._traverse_affinity_graph()
+        # 应用时间偏移
+        original_shifts = {job_id: job.time_shift for job_id, job in self.jobs.items()}
+        for job_id, shift in time_shifts.items():
+            self.jobs[job_id].time_shift = shift
 
-        # 将时间偏移应用到作业
-        for job in self.jobs:
-            if job.name in job_time_shifts:
-                job.time_shift = job_time_shifts[job.name]
-                print(f"为 {job.name} 分配时间偏移: {job.time_shift:.1f}ms")
-            else:
-                job.time_shift = 0
+        # 计算链路兼容性
+        link_scores = []
+        for link, link_data in temp_topology.links.items():
+            if len(link_data['jobs']) >= 2:
+                score = self._compute_link_compatibility(link, link_data['jobs'])
+                link_scores.append(score)
 
-        return job_time_shifts
+        # 恢复原始偏移
+        for job_id, shift in original_shifts.items():
+            self.jobs[job_id].time_shift = shift
 
-    def _traverse_affinity_graph(self):
-        """亲和图的BFS遍历以分配唯一时间偏移"""
+        avg_score = np.mean(link_scores) if link_scores else 0
+        return avg_score, time_shifts
+
+    def _build_affinity_graph(self, topology: OpticalTopology) -> nx.Graph:
+        """构建Affinity图(与之前相同)"""
+        G = nx.Graph()
+        for job_id in self.jobs:
+            G.add_node(f"j{job_id}", bipartite=0, type="job")
+        for link, link_data in topology.links.items():
+            if len(link_data['jobs']) >= 2:
+                link_name = f"l{link[0]}-{link[1]}"
+                G.add_node(link_name, bipartite=1, type="link", capacity=link_data['capacity'])
+                for job_id in link_data['jobs']:
+                    G.add_edge(f"j{job_id}", link_name, weight=0)
+        return G
+
+    def _compute_link_compatibility(self, link: Tuple[int, int], job_ids: set) -> float:
+        """基于流量大小的兼容性计算"""
+        jobs = [self.jobs[jid] for jid in job_ids]
+        link_capacity = self.topology.links[link]['capacity']
+        iteration_times = [job.iteration_time for job in jobs]
+        unified_perimeter = lcm_list(iteration_times)
+        num_angles = 360  # 1度步长
+
+        best_score = -np.inf
+        best_rotations = {}
+        angle_steps = np.linspace(0, 2 * np.pi, 36, endpoint=False)  # 10度间隔
+
+        for rot_angles in np.array(np.meshgrid(*[angle_steps] * len(jobs))).T.reshape(-1, len(jobs)):
+            max_demand = 0
+            total_excess = 0
+
+            for alpha in np.linspace(0, 2 * np.pi, num_angles, endpoint=False):
+                total_bw = 0
+                for job, rot in zip(jobs, rot_angles):
+                    t = (alpha / (2 * np.pi)) * unified_perimeter
+                    t_job = (t - (rot / (2 * np.pi)) * job.iteration_time) % job.iteration_time
+
+                    # 动态计算带宽需求
+                    data_vol, duration = job.get_phase_info_at_time(t_job)
+                    if duration > 0:
+                        bw = (data_vol * 8) / (duration / 1000)  # GB->Gb, ms->s
+                        total_bw += bw
+
+                excess = max(0, total_bw - link_capacity)
+                total_excess += excess
+
+            avg_excess = total_excess / num_angles
+            score = 1 - (avg_excess / link_capacity)
+
+            if score > best_score:
+                best_score = score
+                best_rotations = {job.job_id: rot for job, rot in zip(jobs, rot_angles)}
+
+        # 转换旋转角度为时间偏移
+        for job_id, rot in best_rotations.items():
+            time_shift = (rot / (2 * np.pi)) * unified_perimeter % self.jobs[job_id].iteration_time
+            self.jobs[job_id].time_shift = time_shift
+
+        return best_score
+
+    def _compute_time_shifts(self, affinity_graph: nx.Graph) -> Dict[int, float]:
+        """计算时间偏移(与之前相同)"""
         time_shifts = {}
-        visited = set()
+        for component in nx.connected_components(affinity_graph):
+            subgraph = affinity_graph.subgraph(component)
+            job_nodes = [n for n in subgraph.nodes if subgraph.nodes[n]['type'] == 'job']
+            if not job_nodes: continue
 
-        # 分别处理每个连通组件
-        for component in nx.connected_components(self.affinity_graph):
-            # 找到一个作业节点开始BFS
-            start_node = next(n for n in component
-                              if self.affinity_graph.nodes[n]['type'] == 'job')
-
-            # 用起始作业初始化队列(时间偏移=0)
+            start_node = job_nodes[0]
             queue = [start_node]
-            time_shifts[start_node] = 0
-            visited.add(start_node)
+            visited = set([start_node])
+            time_shifts[int(start_node[1:])] = 0
 
             while queue:
                 current = queue.pop(0)
+                for neighbor in subgraph.neighbors(current):
+                    if neighbor in visited: continue
 
-                # 访问所有邻居
-                for neighbor in self.affinity_graph.neighbors(current):
-                    if neighbor in visited:
-                        continue
+                    if subgraph.nodes[neighbor]['type'] == 'link':
+                        link_capacity = subgraph.nodes[neighbor]['capacity']
+                        job_ids = [int(n[1:]) for n in subgraph.neighbors(neighbor)
+                                   if subgraph.nodes[n]['type'] == 'job']
+                        iteration_times = [self.jobs[jid].iteration_time for jid in job_ids]
+                        unified_perimeter = lcm_list(iteration_times)
 
-                    node_type = self.affinity_graph.nodes[neighbor]['type']
-                    edge_data = self.affinity_graph.edges[current, neighbor]
-
-                    if node_type == 'link':
-                        # 遍历 job -> link: 减去边权重
-                        link = self.affinity_graph.nodes[neighbor]['obj']
-                        for job in link.jobs:
-                            if job.name != current and job.name not in visited:
-                                # 计算此作业的时间偏移
-                                t_shift = (time_shifts[current] - edge_data['weight']) % job.iteration_time
-                                time_shifts[job.name] = t_shift
-                                visited.add(job.name)
-                                queue.append(job.name)
-
+                        for jid in job_ids:
+                            if jid not in time_shifts:
+                                time_shifts[jid] = jid * unified_perimeter / (
+                                            len(job_ids) * self.jobs[jid].iteration_time)
+                                queue.append(f"j{jid}")
+                                visited.add(f"j{jid}")
         return time_shifts
 
-    def visualize_communication(self, duration=500):
-        """可视化带有时间偏移的作业通信模式"""
-        plt.figure(figsize=(12, 6))
+    def schedule(self):
+        """调度主流程(与之前相同)"""
+        if not self.jobs: return
 
-        for i, job in enumerate(self.jobs):
-            times = np.arange(0, duration, 1)
-            bandwidths = [job.get_bandwidth_at_time(t) for t in times]
+        self.generate_placement_candidates(num_candidates=5)
+        best_score, best_candidate, best_shifts = -np.inf, None, {}
 
-            plt.plot(times, bandwidths, label=f"{job.name} (偏移={job.time_shift:.1f}ms)")
+        for candidate in self.placement_candidates:
+            score, time_shifts = self.evaluate_compatibility(candidate)
+            if score > best_score:
+                best_score, best_candidate, best_shifts = score, candidate, time_shifts
 
-        plt.xlabel('时间 (毫秒)')
-        plt.ylabel('带宽需求')
-        plt.title('带有时间偏移的作业通信模式')
-        plt.legend()
-        plt.grid(True)
+        for job_id, shift in best_shifts.items():
+            self.jobs[job_id].time_shift = shift
+
+        return best_candidate, best_shifts, best_score
+
+    def plot_utilization(self, link: Tuple[int, int]):
+        """增强的可视化：显示带宽和流量大小"""
+        job_ids = self.topology.links[link]['jobs']
+        if not job_ids:
+            print(f"No jobs share link {link}")
+            return
+
+        unified_perimeter = lcm_list([self.jobs[jid].iteration_time for jid in job_ids])
+        time_points = np.linspace(0, unified_perimeter, 500)
+
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), sharex=True)
+
+        # 绘制带宽需求
+        for jid in job_ids:
+            job = self.jobs[jid]
+            bandwidth = [job.get_bandwidth_at_time(t) for t in time_points]
+            ax1.plot(time_points, bandwidth, label=f"Job {jid}")
+        ax1.axhline(y=self.topology.links[link]['capacity'], color='r', linestyle='--', label='Link Capacity')
+        ax1.set_ylabel("Bandwidth (Gbps)")
+        ax1.set_title(f"Bandwidth Utilization on Link {link}")
+        ax1.legend()
+        ax1.grid()
+
+        # 绘制流量大小
+        for jid in job_ids:
+            job = self.jobs[jid]
+            data_volumes = [job.get_phase_info_at_time(t)[0] for t in time_points]
+            ax2.plot(time_points, data_volumes, label=f"Job {jid}")
+        ax2.set_xlabel("Time (ms)")
+        ax2.set_ylabel("Data Volume (GB)")
+        ax2.set_title("Data Volume Transmission")
+        ax2.legend()
+        ax2.grid()
+
+        plt.tight_layout()
         plt.show()
 
 
-# 示例用法
+# 示例使用
 if __name__ == "__main__":
-    # 创建一些具有不同通信模式的作业
-    # 格式: (开始时间, 持续时间, 带宽)
-    job1 = Job("VGG16", 255, [(0, 141, 45)])  # 下行阶段: 0-141ms, 45Gbps
-    job2 = Job("VGG19", 255, [(141, 114, 45)])  # 上行阶段: 141-255ms, 45Gbps
-    job3 = Job("GPT-2", 400, [(0, 100, 30), (200, 100, 30)])  # 两个通信阶段
+    # 4节点光互连拓扑
+    topology_matrix = np.array([
+        [0, 2, 1, 0],  # 节点0到节点1有2条连接，到节点2有1条
+        [1, 0, 0, 1],  # 节点1到节点0和3各有1条连接
+        [0, 0, 0, 2],  # 节点2到节点3有2条连接
+        [0, 0, 0, 0]  # 节点3无出向连接
+    ])
 
-    # 创建具有容量(论文中为50Gbps)的链路
-    link1 = Link("链路1", 50)
-    link1.add_job(job1)
-    link1.add_job(job2)  # 这两个应该是兼容的
+    topology = OpticalTopology(topology_matrix)
+    scheduler = CassiniScheduler(topology)
 
-    link2 = Link("链路2", 50)
-    link2.add_job(job1)
-    link2.add_job(job3)  # 兼容性较差
+    # 定义作业(迭代时间ms, [(开始时间ms, 持续时间ms, 数据量GB)])
+    jobs = [
+        Job(1, 200, [(0, 50, 10), (100, 50, 5)]),  # 作业1: 两个阶段(10GB和5GB)
+        Job(2, 300, [(0, 100, 20), (150, 50, 15)]),  # 作业2: 两个阶段(20GB和15GB)
+        Job(3, 250, [(50, 75, 12), (150, 50, 8)]),  # 作业3: 两个阶段(12GB和8GB)
+    ]
 
-    # 创建调度器并设置
-    scheduler = CassiniScheduler()
-    scheduler.add_job(job1)
-    scheduler.add_job(job2)
-    scheduler.add_job(job3)
-    scheduler.add_link(link1)
-    scheduler.add_link(link2)
+    paths = [
+        [0, 1, 3],  # 作业1路径
+        [0, 2, 3],  # 作业2路径
+        [1, 3]  # 作业3路径
+    ]
 
-    # 在亲和图中连接作业和链路
-    scheduler.connect_job_to_link("VGG16", "链路1")
-    scheduler.connect_job_to_link("VGG19", "链路1")
-    scheduler.connect_job_to_link("VGG16", "链路2")
-    scheduler.connect_job_to_link("GPT-2", "链路2")
+    for job, path in zip(jobs, paths):
+        scheduler.add_job(job, path)
 
-    # 执行调度
-    scheduler.schedule()
+    # 运行调度器
+    best_candidate, best_shifts, best_score = scheduler.schedule()
 
-    # 可视化通信模式
-    scheduler.visualize_communication()
+    print("最优候选布局:")
+    for job_id, path in best_candidate.items():
+        print(f"作业{job_id}: 路径{path}")
+
+    print("\n最优时间偏移:")
+    for job_id, shift in best_shifts.items():
+        print(f"作业{job_id}: {shift:.2f} ms 偏移")
+
+    print(f"\n最优兼容性得分: {best_score:.2f}")
+
+    # 可视化链路利用率
+    print("\n链路(0,1)利用率分析:")
+    scheduler.plot_utilization((0, 1))
