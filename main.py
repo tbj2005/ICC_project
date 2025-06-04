@@ -1,6 +1,7 @@
 import copy
 import time
 import ILP_new
+import cassini_schedule
 
 import numpy as np
 import bvn
@@ -616,6 +617,7 @@ solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all
 print(undeploy_out)
 all_job = [i for i in range(job_number) if i not in undeploy_out]
 sum_job_num = 0
+"""
 job_set, pod_set = Schedule_part.non_conflict(solution_out, pod_number)
 for i in range(len(job_set)):
     f_job = [j for j in job_set[i] if fix_job[j] == 1]
@@ -652,4 +654,30 @@ for i in range(len(job_set)):
         ILP_new.ilp_new(fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
                         port_num, solution_out)
 print(sum_job_num)
+"""
 
+"""
+cassini 部分
+"""
+conn_matrix = (np.eye(pod_number) - np.diag(port_num)) * b_link
+network = cassini_schedule.OpticalNetwork(conn_matrix)
+data_matrix_cassini = np.array([np.zeros(pod_number, pod_number) for _ in range(len(solution_out))])
+for i in range(len(solution_out)):
+    if solution_out[i][0] == -1:
+        worker = [k for k in range(pod_number) if solution_out[i][1][k] > 0]
+        data_matrix_cassini[i][worker[-1]][worker[0]] += single_link_out[i]
+        for k in range(len(worker) - 1):
+            data_matrix_cassini[i][worker[k]][worker[k + 1]] += single_link_out[i]
+    if solution_out[i][0] != -1:
+        ps_local = solution_out[i][0]
+        worker = [k for k in range(pod_number) if solution_out[i][1][k] > 0]
+        for k in range(len(worker)):
+            if ps_local != worker[k]:
+                data_matrix_cassini[i][ps_local][worker[k]] += single_link_out[i]
+                data_matrix_cassini[i][worker[k]][ps_local] += single_link_out[i]
+    row, col = np.where(data_matrix_cassini > 0)
+    t_job = 0
+    for j in range(len(row)):
+        t_link_j = data_matrix_cassini[row[j]][col[j]] / conn_matrix[row[j]][col[j]]
+        if t_link_j > t_job:
+            t_job = t_link_j
