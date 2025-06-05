@@ -681,3 +681,5 @@ for i in range(len(solution_out)):
         t_link_j = data_matrix_cassini[row[j]][col[j]] / conn_matrix[row[j]][col[j]]
         if t_link_j > t_job:
             t_job = t_link_j
+    t_comm = t_job
+    t_comp = train_time[i]
