@@ -169,6 +169,9 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     model.addConstrs(t1_comp >= k1[i] * t_train[i] for i in range(num_job))
     model.addConstrs(t2_comp >= k2[i] * t_train[i] for i in range(num_job))  # 每阶段的计算时间大于等于当阶段所有业务的计算时间
 
+    # 在各组组内约束 D <= t * L
+    # 第一组
+
     model.addConstrs(quicksum(delta_a_u_v[a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(kd_u_v[0, i, u, v] >= m * k1[i] - m for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
     model.addConstrs(kd_u_v[0, i, u, v] <= M * k1[i] for i in range(num_job) for u in range(num_pod) for v in range(0, num_pod))
@@ -183,6 +186,8 @@ def ilp_new(fj, ufj, t_train, num_job, num_pod, b_link, data_per_worker, port_nu
     model.addConstrs(b_link * t1_comm - M * (1 - delta_a_u_v[a, u, v]) <= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(b_link * t1_comm - m * (1 - delta_a_u_v[a, u, v]) + m >= w_a_u_v[0, a, u, v] for a in range(port_num + 1) for u in range(num_pod) for v in range(num_pod))
     model.addConstrs(link[u, v] == quicksum(a * delta_a_u_v[a, u, v] for a in range(port_num + 1)) for u in range(num_pod) for v in range(num_pod))
+
+    # 第二组
 
     model.addConstrs(
         quicksum(delta_a_u_v[a, u, v] for a in range(port_num + 1)) == 1 for u in range(num_pod) for v in range(num_pod))
