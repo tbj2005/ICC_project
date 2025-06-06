@@ -149,7 +149,7 @@ class CassiniSimulator:
                 best_shift = 0
 
                 # 只需遍历当前作业的迭代角度范围
-                for shift in range(int(360 * base_job['iteration_time'] / perimeter)):
+                for shift in range(int(360 * other_job['iteration_time'] / perimeter)):
                     shifted_pattern = np.roll(other_pattern, shift)
                     overlap = np.sum(np.maximum(total_demand + shifted_pattern - self.link_capacity, 0))
 
@@ -239,7 +239,122 @@ class CassiniSimulator:
         return time_shifts
 
     def simulate_iteration(self):
-        """Simulate one training iteration with current placements and time shifts."""
+        """Simulate one training iteration with refined overlap calculation and non-redundant penalty."""
+        # Get time shifts from affinity graph
+        time_shifts = self.build_affinity_graph()
+
+        # Apply time shifts to jobs
+        for job in self.active_jobs:
+            job['time_shift'] = time_shifts.get(job['id'], 0)
+
+        # Precompute LCM period for all jobs' iteration times
+        link_penalties = defaultdict(float)  # {link: total_penalty_time}
+        lcm_period = self.lcm([j['iteration_time'] for j in self.active_jobs])
+
+        # 第一阶段：计算每条链路的独立惩罚
+        bottleneck_links = self.find_bottleneck_links()
+        for link, job_ids in bottleneck_links.items():
+            jobs = [j for j in self.active_jobs if j['id'] in job_ids]
+            if len(jobs) <= 1:
+                continue
+
+            # 计算链路总过载数据量
+            total_demand = sum(j['traffic_matrix'][link] for j in jobs)
+            overload = max(0, total_demand - self.link_capacity)
+
+            # 计算所有作业在该链路上的总重叠通信时间
+            total_overlap_time = self.calculate_total_overload(jobs, link, lcm_period)
+
+            # 链路总惩罚 = 过载数据量 / 容量
+            link_penalty = (overload / self.link_capacity) * total_overlap_time
+            link_penalties[link] = link_penalty
+
+        # 第二阶段：将链路惩罚公平分配到各作业
+        job_penalties = defaultdict(float)
+        for link, penalty in link_penalties.items():
+            jobs = [j for j in self.active_jobs if j['id'] in bottleneck_links[link]]
+            total_comm = sum(j['comm_time'] for j in jobs)
+
+            # 按作业通信时间占比分配惩罚
+            for job in jobs:
+                job_share = job['comm_time'] / total_comm
+                job_penalties[job['id']] += penalty * job_share
+
+        # 第三阶段：计算最终迭代时间
+        iteration_times = []
+        for job in self.active_jobs:
+            iteration_time = job['iteration_time'] + job_penalties.get(job['id'], 0)
+            iteration_times.append(iteration_time)
+
+        self.iteration_times.append(iteration_times)
+        return np.mean(iteration_times)
+
+    def calculate_total_overload(self, jobs, link, lcm_period):
+        events = []
+        for job in jobs:
+            windows = self.get_periodic_windows(
+                job['time_shift'],
+                job['comm_time'],
+                job['iteration_time'],
+                lcm_period
+            )
+            bw = job['traffic_matrix'][link]
+            for start, end in windows:
+                events.append((start, 'start', bw))
+                events.append((end, 'end', bw))
+
+        events.sort()
+        active_jobs = set()  # 使用集合防止重复（虽然理论上不应发生）
+        current_demand = 0
+        total_overload_data = 0
+        prev_time = 0
+
+        for time, typ, bw in events:
+            # 处理上一时段
+            if len(active_jobs) >= 2:
+                overload = max(0, current_demand - self.link_capacity)
+                total_overload_data += overload * (time - prev_time)
+
+            # 更新当前状态
+            if typ == 'start':
+                active_jobs.add(bw)
+                current_demand += bw
+            else:
+                active_jobs.discard(bw)
+                current_demand -= bw
+
+            prev_time = time
+
+        return total_overload_data / self.link_capacity  # 返回时间惩罚
+
+    def get_periodic_windows(self, start, duration, period, lcm_period):
+        """生成周期性通信窗口（支持跨周期边界）"""
+        windows = []
+        num_repeats = lcm_period // period
+        for k in range(num_repeats):
+            window_start = (start + k * period) % lcm_period
+            window_end = (window_start + duration) % lcm_period
+            if window_end < window_start:
+                windows.append((window_start, lcm_period))
+                windows.append((0, window_end))
+            else:
+                windows.append((window_start, window_end))
+        return windows
+
+    """
+    def calculate_windows_overlap(self, windows1, windows2):
+        # Calculate total overlap time between two sets of windows.
+        overlap = 0
+
+        for (s1, e1) in windows1:
+            for (s2, e2) in windows2:
+                # Calculate overlap between two individual windows
+                overlap += max(0, min(e1, e2) - max(s1, s2))
+
+        return overlap
+
+    def simulate_iteration(self):
+        # Simulate one training iteration with current placements and time shifts.
         # Get time shifts from affinity graph
         time_shifts = self.build_affinity_graph()
 
@@ -299,8 +414,9 @@ class CassiniSimulator:
 
         # Record metrics
         self.iteration_times.append(iteration_times)
-        return np.mean(iteration_times)
 
+        return np.mean(iteration_times)
+    """
     def run_simulation(self, num_iterations=10):
         """Run the simulation for multiple iterations."""
         avg_times = []
@@ -327,10 +443,10 @@ if __name__ == "__main__":
     resnet_traffic = np.zeros((4, 4))
     for i in range(0, 3):
         for j in range(i + 1, 4):
-            resnet_traffic[i, j] = resnet_traffic[j, i] = 15  # 15Gbps between all pairs
+            resnet_traffic[i, j] = resnet_traffic[j, i] = 45  # 15Gbps between all pairs
 
     # Add jobs with their traffic matrices
-    simulator.add_job("VGG16", 250, 50, 50, vgg16_traffic)
+    simulator.add_job("VGG16", 200, 50, 50, vgg16_traffic)
     simulator.add_job("ResNet50", 200, 100, 50, resnet_traffic)
 
     # Run simulation for 10 iterations

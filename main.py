@@ -660,7 +660,7 @@ print(sum_job_num)
 cassini 部分
 """
 conn_matrix = (np.eye(pod_number) - np.diag(port_num)) * b_link
-network = cassini_schedule.OpticalNetwork(conn_matrix)
+simulator = cassini_schedule.CassiniSimulator(num_servers=pod_number)
 data_matrix_cassini = np.array([np.zeros(pod_number, pod_number) for _ in range(len(solution_out))])
 for i in range(len(solution_out)):
     if solution_out[i][0] == -1:
@@ -683,3 +683,4 @@ for i in range(len(solution_out)):
             t_job = t_link_j
     t_comm = t_job
     t_comp = train_time[i]
+
