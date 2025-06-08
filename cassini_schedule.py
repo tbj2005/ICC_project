@@ -6,7 +6,7 @@ import heapq
 
 
 class CassiniSimulator:
-    def __init__(self, num_servers, link_capacity=50):
+    def __init__(self, num_servers, link_capacity):
         """
         Initialize the Cassini simulator for optical interconnected data centers.
 
@@ -31,7 +31,7 @@ class CassiniSimulator:
         # For tracking performance metrics
         self.iteration_times = []
 
-    def add_job(self, job_id, iteration_time, compute_time, comm_bandwidth, traffic_matrix):
+    def add_job(self, job_id, iteration_time, compute_time, bandwidth_matrix):
         """
         Add a new job to the cluster with its traffic matrix.
 
@@ -39,9 +39,8 @@ class CassiniSimulator:
             job_id: Unique identifier for the job
             iteration_time: Total time for one training iteration (ms)
             compute_time: Duration of compute phase (ms)
-            comm_bandwidth: Bandwidth demand during communication phase (Gbps)
-            traffic_matrix: NumPy array of shape (num_servers, num_servers)
-                            showing communication pattern between servers
+            :param bandwidth_matrix:
+
         """
         comm_time = iteration_time - compute_time
         job = {
@@ -49,8 +48,7 @@ class CassiniSimulator:
             'iteration_time': iteration_time,
             'compute_time': compute_time,
             'comm_time': comm_time,
-            'comm_bandwidth': comm_bandwidth,
-            'traffic_matrix': traffic_matrix,
+            'bandwidth_matrix': bandwidth_matrix,
             'time_shift': 0  # Will be set by Cassini scheduler
         }
         self.active_jobs.append(job)
@@ -65,7 +63,7 @@ class CassiniSimulator:
 
         for job in self.active_jobs:
             # Get all directed links used by this job (src -> dst)
-            srcs, dsts = np.where(job['traffic_matrix'] > 0)
+            srcs, dsts = np.where(job['bandwidth_matrix'] > 0)
             for src, dst in zip(srcs, dsts):
                 link_usage[(src, dst)].add(job['id'])
 
@@ -95,6 +93,8 @@ class CassiniSimulator:
         # Create unified circle with perimeter = LCM of iteration times
         iteration_times = [job['iteration_time'] for job in jobs]
         perimeter = self.lcm(iteration_times)
+        degree = 0 + perimeter
+        print(degree)
 
         # For each job, create its bandwidth demand pattern on the unified circle
         job_patterns = []
@@ -102,16 +102,16 @@ class CassiniSimulator:
             r = job['iteration_time'] / perimeter
 
             # Create bandwidth demand pattern (0 during compute, bw during comm)
-            pattern = np.zeros(360)  # 1-degree precision (360 points)
+            pattern = np.zeros(degree)  # 1-degree precision (360 points)
 
             # 计算该作业在LCM周期内完整的迭代次数
             num_repeats = int(perimeter / job['iteration_time'])
 
             # 计算通信阶段在统一圆环上的总角度跨度
-            total_comm_angle = 360 * (job['comm_time'] * num_repeats) / perimeter
+            total_comm_angle = degree * (job['comm_time'] * num_repeats) / perimeter
 
             # 每次迭代在圆环上的角度跨度
-            iter_angle = 360 * job['iteration_time'] / perimeter
+            iter_angle = degree * job['iteration_time'] / perimeter
 
             # 每次迭代的通信角度跨度（保持通信/计算比例）
             comm_angle_per_iter = total_comm_angle / num_repeats
@@ -122,11 +122,11 @@ class CassiniSimulator:
                 comm_end = int(iter_start + comm_angle_per_iter)
 
                 # 处理圆环边界
-                if comm_end > 360:
-                    pattern[comm_start:360] = job['comm_bandwidth']
-                    pattern[0:(comm_end % 360)] = job['comm_bandwidth']
+                if comm_end > degree:
+                    pattern[comm_start:degree] = job['bandwidth_matrix'][link]
+                    pattern[0:(comm_end % degree)] = job['bandwidth_matrix'][link]
                 else:
-                    pattern[comm_start:comm_end] = job['comm_bandwidth']
+                    pattern[comm_start:comm_end] = job['bandwidth_matrix'][link]
 
             job_patterns.append((job, pattern))
 
@@ -149,7 +149,7 @@ class CassiniSimulator:
                 best_shift = 0
 
                 # 只需遍历当前作业的迭代角度范围
-                for shift in range(int(360 * other_job['iteration_time'] / perimeter)):
+                for shift in range(int(degree * other_job['iteration_time'] / perimeter)):
                     shifted_pattern = np.roll(other_pattern, shift)
                     overlap = np.sum(np.maximum(total_demand + shifted_pattern - self.link_capacity, 0))
 
@@ -158,7 +158,7 @@ class CassiniSimulator:
                         best_shift = shift
 
                 # 转换最优偏移为时间
-                time_shift = (best_shift / 360) * perimeter
+                time_shift = (best_shift / degree) * perimeter
 
                 # Convert angle shift to time shift
                 # time_shift = (best_shift / 360) * perimeter % other_job['iteration_time']
@@ -239,93 +239,100 @@ class CassiniSimulator:
         return time_shifts
 
     def simulate_iteration(self):
-        """Simulate one training iteration with refined overlap calculation and non-redundant penalty."""
-        # Get time shifts from affinity graph
+        """Simulate one iteration with dynamic per-link overload calculation and fair penalty allocation."""
+        # Phase 1: Apply time shifts
         time_shifts = self.build_affinity_graph()
-
-        # Apply time shifts to jobs
         for job in self.active_jobs:
             job['time_shift'] = time_shifts.get(job['id'], 0)
 
-        # Precompute LCM period for all jobs' iteration times
-        link_penalties = defaultdict(float)  # {link: total_penalty_time}
-        lcm_period = self.lcm([j['iteration_time'] for j in self.active_jobs])
+        # Phase 2: Precompute LCM period
+        lcm_period = self.lcm([job['iteration_time'] for job in self.active_jobs])
 
-        # 第一阶段：计算每条链路的独立惩罚
+        # Phase 3: Calculate penalties per job
+        job_penalties = defaultdict(float)
         bottleneck_links = self.find_bottleneck_links()
+
+        for job in self.active_jobs:
+            job_penalties[job['id']] = 0
         for link, job_ids in bottleneck_links.items():
-            jobs = [j for j in self.active_jobs if j['id'] in job_ids]
-            if len(jobs) <= 1:
+            # Only process links with actual contention
+            if len(job_ids) < 2:
                 continue
 
-            # 计算链路总过载数据量
-            total_demand = sum(j['traffic_matrix'][link] for j in jobs)
-            overload = max(0, total_demand - self.link_capacity)
+            # Get all jobs sharing this link with their bandwidths
+            sharing_jobs = [j for j in self.active_jobs if j['id'] in job_ids]
 
-            # 计算所有作业在该链路上的总重叠通信时间
-            total_overlap_time = self.calculate_total_overload(jobs, link, lcm_period)
+            # Calculate dynamic penalties for this link
+            link_penalties = self.calculate_link_penalties(
+                jobs=sharing_jobs,
+                link=link,
+                lcm_period=lcm_period
+            )
 
-            # 链路总惩罚 = 过载数据量 / 容量
-            link_penalty = (overload / self.link_capacity) * total_overlap_time
-            link_penalties[link] = link_penalty
+            # Accumulate penalties to jobs
+            for job_id, penalty in link_penalties.items():
+                job_penalties[job_id] = max(job_penalties[job_id], penalty)
 
-        # 第二阶段：将链路惩罚公平分配到各作业
-        job_penalties = defaultdict(float)
-        for link, penalty in link_penalties.items():
-            jobs = [j for j in self.active_jobs if j['id'] in bottleneck_links[link]]
-            total_comm = sum(j['comm_time'] for j in jobs)
-
-            # 按作业通信时间占比分配惩罚
-            for job in jobs:
-                job_share = job['comm_time'] / total_comm
-                job_penalties[job['id']] += penalty * job_share
-
-        # 第三阶段：计算最终迭代时间
+        # Phase 4: Apply penalties and record results
         iteration_times = []
         for job in self.active_jobs:
-            iteration_time = job['iteration_time'] + job_penalties.get(job['id'], 0)
+            total_penalty = job_penalties.get(job['id'], 0)
+
+            # Ensure penalty doesn't exceed physical limits
+            # clamped_penalty = min(total_penalty, job['comm_time'] * 3)  # Max 3x base comm time
+            # iteration_time = job['iteration_time'] + clamped_penalty
+            iter_num = lcm_period / job["iteration_time"]
+            iteration_time = (lcm_period + total_penalty) / iter_num
+
             iteration_times.append(iteration_time)
 
         self.iteration_times.append(iteration_times)
-        return np.mean(iteration_times)
+        return iteration_times
 
-    def calculate_total_overload(self, jobs, link, lcm_period):
+    def calculate_link_penalties(self, jobs, link, lcm_period):
+        # 生成带作业ID和带宽的事件
         events = []
         for job in jobs:
+            bw = job['bandwidth_matrix'][link]
             windows = self.get_periodic_windows(
                 job['time_shift'],
                 job['comm_time'],
                 job['iteration_time'],
                 lcm_period
             )
-            bw = job['traffic_matrix'][link]
             for start, end in windows:
-                events.append((start, 'start', bw))
-                events.append((end, 'end', bw))
+                events.append((start, 'a_start', bw, job['id']))
+                events.append((end, 'b_end', bw, job['id']))
 
+        # 按时间排序事件
         events.sort()
-        active_jobs = set()  # 使用集合防止重复（虽然理论上不应发生）
-        current_demand = 0
-        total_overload_data = 0
-        prev_time = 0
 
-        for time, typ, bw in events:
-            # 处理上一时段
+        # 动态计算惩罚
+        active_jobs = {}  # {job_id: bandwidth}
+        current_demand = 0
+        job_penalties = defaultdict(float)
+        prev_time = 0
+        for time, typ, bw, job_id in events:
+            # 处理上一时段的过载分配
             if len(active_jobs) >= 2:
                 overload = max(0, current_demand - self.link_capacity)
-                total_overload_data += overload * (time - prev_time)
+                if overload > 0:
+                    duration = time - prev_time
+                    total_bw = sum(active_jobs.values())
+                    for jid, jbw in active_jobs.items():
+                        job_penalties[jid] += (jbw / total_bw) * overload * duration / self.link_capacity
 
-            # 更新当前状态
-            if typ == 'start':
-                active_jobs.add(bw)
+            # 更新当前活跃作业
+            if typ == 'a_start':
+                active_jobs[job_id] = bw
                 current_demand += bw
             else:
-                active_jobs.discard(bw)
+                del active_jobs[job_id]
                 current_demand -= bw
 
             prev_time = time
 
-        return total_overload_data / self.link_capacity  # 返回时间惩罚
+        return job_penalties
 
     def get_periodic_windows(self, start, duration, period, lcm_period):
         """生成周期性通信窗口（支持跨周期边界）"""
@@ -336,7 +343,8 @@ class CassiniSimulator:
             window_end = (window_start + duration) % lcm_period
             if window_end < window_start:
                 windows.append((window_start, lcm_period))
-                windows.append((0, window_end))
+                if window_end != 0:
+                    windows.append((0, window_end))
             else:
                 windows.append((window_start, window_end))
         return windows
@@ -417,13 +425,10 @@ class CassiniSimulator:
 
         return np.mean(iteration_times)
     """
-    def run_simulation(self, num_iterations=10):
+    def run_simulation(self):
         """Run the simulation for multiple iterations."""
-        avg_times = []
-        for _ in range(num_iterations):
-            avg_time = self.simulate_iteration()
-            avg_times.append(avg_time)
-        return avg_times
+        avg_time = self.simulate_iteration()
+        return avg_time
 
 
 # Example usage
@@ -433,27 +438,23 @@ if __name__ == "__main__":
 
     # Example traffic matrices (in reality these would come from your external source)
     # For VGG16 job: using servers 0-3 with ring allreduce pattern
-    vgg16_traffic = np.zeros((4, 4))
-    vgg16_traffic[0, 1] = vgg16_traffic[1, 0] = 20  # 20Gbps between server 0-1
-    vgg16_traffic[1, 2] = vgg16_traffic[2, 1] = 20  # 20Gbps between server 1-2
-    vgg16_traffic[2, 3] = vgg16_traffic[3, 2] = 20  # 20Gbps between server 2-3
-    vgg16_traffic[3, 0] = vgg16_traffic[0, 3] = 20  # 20Gbps between server 3-0
+    vgg16_band = np.zeros((4, 4))
+    vgg16_band[0, 1] = vgg16_band[1, 0] = 20  # 20Gbps between server 0-1
+    vgg16_band[1, 2] = vgg16_band[2, 1] = 20  # 20Gbps between server 1-2
+    vgg16_band[2, 3] = vgg16_band[3, 2] = 20  # 20Gbps between server 2-3
+    vgg16_band[3, 0] = vgg16_band[0, 3] = 20  # 20Gbps between server 3-0
 
     # For ResNet50 job: using servers 4-7 with all-to-all pattern
-    resnet_traffic = np.zeros((4, 4))
+    resnet_band = np.zeros((4, 4))
     for i in range(0, 3):
         for j in range(i + 1, 4):
-            resnet_traffic[i, j] = resnet_traffic[j, i] = 45  # 15Gbps between all pairs
+            resnet_band[i, j] = resnet_band[j, i] = 45  # 15Gbps between all pairs
 
     # Add jobs with their traffic matrices
-    simulator.add_job("VGG16", 200, 50, 50, vgg16_traffic)
-    simulator.add_job("ResNet50", 200, 100, 50, resnet_traffic)
+    simulator.add_job("VGG16", 200, 50, vgg16_band)
+    simulator.add_job("ResNet50", 200, 100, resnet_band)
 
     # Run simulation for 10 iterations
-    avg_times = simulator.run_simulation(num_iterations=10)
+    avg_times = simulator.run_simulation()
 
-    print("Average iteration times across jobs for each simulation step:")
-    for i, t in enumerate(avg_times):
-        print(f"Iteration {i + 1}: {t:.2f} ms")
-
-    print("\nOverall average iteration time:", np.mean(avg_times), "ms")
+    print(avg_times)
