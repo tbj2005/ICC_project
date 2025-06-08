@@ -1,6 +1,7 @@
 import copy
 import time
 import ILP_new
+import random
 import cassini_schedule
 
 import numpy as np
@@ -265,7 +266,7 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
     while 1:
         if t_high - t_low <= t_threshold:
             # print(t_high)
-            print(job_matrix_out)
+            # print(job_matrix_out)
             return job_matrix_out, sum_matrix_out, count
         sum_matrix_edit = copy.deepcopy(sum_matrix)
         job_matrix_edit = copy.deepcopy(job_matrix)
@@ -286,7 +287,7 @@ def binary_search(t_low, t_high, job_matrix, sum_matrix, link_matrix, band_per_p
                 job_index = job_index_sort[j]
                 value = job_matrix_edit[job_index][row][col]
                 if job_index in job_set_link:
-                    value_path, path = max_min_weight_path_dijkstra_k_hops(stuff_decompose, row, col, 2)
+                    value_path, path = max_min_weight_path_dijkstra_no_cycle(stuff_decompose, row, col)
                     if len(path) == 0:
                         break
                     flag = 0
@@ -393,7 +394,7 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
             if job_matrix[job_index][row_stuff][col_stuff] == 0:
                 continue
             else:
-                _, path_zip = max_min_weight_path_dijkstra_k_hops(stuff_compose, row, col, 2)
+                _, path_zip = max_min_weight_path_dijkstra_no_cycle(stuff_compose + 5000 * np.ones_like(stuff_compose), row, col)
                 if len(path_zip) == 0:
                     return -1, np.zeros([pod, pod]), -1
                 path = np.zeros(len(path_zip), dtype=int)
@@ -412,7 +413,7 @@ def tpe(job_set_tpe, job_matrix, job_link_index, port, pod, num_bvn, band_per_po
         transmission_times[link_row[i]][link_col[i]] = (sum_data_edit[link_row[i]][link_col[i]] /
                                                         (band_per_port * link_matrix[link_row[i]][link_col[i]]))
     t_ideal_high = np.max(transmission_times)  # 取最慢的链路
-    print(1)
+    # print(1)
     if t_ideal_high - t_ideal_low <= t_threshold:
         return job_matrix_edit, sum_data_edit, link_matrix
     job_matrix_output, sum_matrix_output, c = binary_search(t_ideal_low, t_ideal_high, job_matrix, sum_data_matrix,
@@ -467,12 +468,12 @@ def iteration_time(job_matrix, link_matrix_all, pod, band_per_port, long_group, 
     short_flow = transport_time(data_short, link_matrix_all, band_per_port)
     long_bool = 0
     short_bool = 0
-    print(long_flow, short_flow)
+    # print(long_flow, short_flow)
     if short_train > long_flow:
         short_bool = 1
     if long_train > short_flow:
         long_bool = 1
-    return max(short_train, long_flow), max(long_train, short_flow), long_bool, short_bool
+    return max(short_train, long_flow), max(long_train, short_flow), long_bool, short_bool, long_flow + short_flow
 
 
 def match_degree_count(job_matrix, long_group, short_group, reverse_group, link_matrix_match, pod, band_per_port):
@@ -533,7 +534,7 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group, job_set_gr
             t_train_short = 0
         else:
             t_train_short = max([t_train[i] for i in short_group])
-        t1, t2, long_bool, short_bool = iteration_time(job_matrix, link_matrix_group, pod, band_per_port, long_group,
+        t1, t2, long_bool, short_bool, _ = iteration_time(job_matrix, link_matrix_group, pod, band_per_port, long_group,
                                                        short_group, t_train_long, t_train_short)
         if long_bool == 1 and short_bool == 0:  # flag = 2
             flag.append(2)
@@ -602,22 +603,23 @@ def group(job_matrix, t_train, band_per_port, pod, link_matrix_group, job_set_gr
 
 # 主函数
 
-job_number = 5
+job_number = 30
 job1 = Schedule_part.generate_job(job_number)
 all_job_index = [job1[i][0] for i in range(0, len(job1))]
 single_link_out, sum_traffic_out = Schedule_part.traffic_count(job1)
 usage = 0.4
 iter_num = 10
 flop = 275
-train_time = Schedule_part.job_set_train(job1, flop, usage)
-pod_number = 4
-b_link = 40
-port_num = 4
-solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 4)
-print(undeploy_out)
+# train_time = Schedule_part.job_set_train(job1, flop, usage)
+train_time = [random.uniform(0.4, 0.5) for _ in range(len(job1))]
+pod_number = 24
+b_link = 10
+port_num = 46
+solution_out, undeploy_out, fix_job, unfix_job = Schedule_part.deploy_server(all_job_index, job1, pod_number, 256, 24)
+# print(undeploy_out)
 all_job = [i for i in range(job_number) if i not in undeploy_out]
 sum_job_num = 0
-"""
+
 job_set, pod_set = Schedule_part.non_conflict(solution_out, pod_number)
 for i in range(len(job_set)):
     f_job = [j for j in job_set[i] if fix_job[j] == 1]
@@ -628,7 +630,7 @@ for i in range(len(job_set)):
             print("A")
             break
     all_job = [j for j in all_job if j not in job_set[i]]
-    print(all_job)
+    # print(all_job)
     pod_sort = copy.deepcopy(pod_set[i])
     pod_sort.sort()
     time1 = time.time()
@@ -639,6 +641,9 @@ for i in range(len(job_set)):
     if np.max(sum_job) == 0:
         print("fail")
     else:
+        data_sum = np.zeros([pod_number, pod_number])
+        for j in range(len(data_matrix)):
+            data_sum += data_matrix[j]
         time3 = time.time()
         # print(time3 - time2)
         g1, g2 = group(data_matrix, train_time, b_link, pod_number, link_matrix_end, job_set[i])
@@ -648,39 +653,57 @@ for i in range(len(job_set)):
         train_g1 = [train_time[i] for i in g1] + [0]
         train_g2 = [train_time[i] for i in g2] + [0]
         t_iter = iteration_time(data_matrix, link_matrix_end, pod_number, b_link, g1, g2, max(train_g1), max(train_g2))
-        print(t_iter)
-        sum_job_num += len(g1) + len(g2)
+        print(1000 * (t_iter[0] + t_iter[1]))
+        ideal_matrix = b_link * link_matrix_end * (t_iter[0] + t_iter[1])
+        delta = ideal_matrix - data_matrix
+        print(np.sum(data_sum) / np.sum(ideal_matrix))
         # print(data_matrix)
-        ILP_new.ilp_new(fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
-                        port_num, solution_out)
-print(sum_job_num)
-"""
+        # ILP_new.ilp_new(fix_job, unfix_job, train_time, job_number, pod_number, b_link, single_link_out,
+        #                 port_num, solution_out)
+
 
 """
 cassini 部分
 """
-conn_matrix = (np.eye(pod_number) - np.diag(port_num)) * b_link
-simulator = cassini_schedule.CassiniSimulator(num_servers=pod_number)
-data_matrix_cassini = np.array([np.zeros(pod_number, pod_number) for _ in range(len(solution_out))])
-for i in range(len(solution_out)):
-    if solution_out[i][0] == -1:
-        worker = [k for k in range(pod_number) if solution_out[i][1][k] > 0]
-        data_matrix_cassini[i][worker[-1]][worker[0]] += single_link_out[i]
-        for k in range(len(worker) - 1):
-            data_matrix_cassini[i][worker[k]][worker[k + 1]] += single_link_out[i]
-    if solution_out[i][0] != -1:
-        ps_local = solution_out[i][0]
-        worker = [k for k in range(pod_number) if solution_out[i][1][k] > 0]
-        for k in range(len(worker)):
-            if ps_local != worker[k]:
-                data_matrix_cassini[i][ps_local][worker[k]] += single_link_out[i]
-                data_matrix_cassini[i][worker[k]][ps_local] += single_link_out[i]
-    row, col = np.where(data_matrix_cassini > 0)
-    t_job = 0
-    for j in range(len(row)):
-        t_link_j = data_matrix_cassini[row[j]][col[j]] / conn_matrix[row[j]][col[j]]
-        if t_link_j > t_job:
-            t_job = t_link_j
-    t_comm = t_job
-    t_comp = train_time[i]
+conn_matrix = (np.ones(pod_number) - np.eye(pod_number)) * b_link
+for ji in range(len(job_set)):
+    simulator = cassini_schedule.CassiniSimulator(num_servers=pod_number, link_capacity=b_link)
+    data_matrix_cassini = np.array([np.zeros([pod_number, pod_number]) for _ in range(len(solution_out))])
+    data_sum_cassini = np.zeros([pod_number, pod_number])
+    for ii in range(len(job_set[ji])):
+        i = job_set[ji][ii]
+        if solution_out[i][0] == -1:
+            worker = [k for k in range(pod_number) if solution_out[i][1][k] > 0]
+            data_matrix_cassini[i][worker[-1]][worker[0]] += single_link_out[i]
+            for k in range(len(worker) - 1):
+                data_matrix_cassini[i][worker[k]][worker[k + 1]] += single_link_out[i]
+        if solution_out[i][0] != -1:
+            ps_local = solution_out[i][0]
+            worker = [k for k in range(pod_number) if solution_out[i][1][k] > 0]
+            for k in range(len(worker)):
+                if ps_local != worker[k]:
+                    data_matrix_cassini[i][ps_local][worker[k]] += single_link_out[i]
+                    data_matrix_cassini[i][worker[k]][ps_local] += single_link_out[i]
+        row, col = np.where(data_matrix_cassini[i] > 0)
+        t_job = 0
+        for j in range(len(row)):
+            t_link_j = data_matrix_cassini[i][row[j]][col[j]] / conn_matrix[row[j]][col[j]]
+            if t_link_j > t_job:
+                t_job = t_link_j
+        t_comm = t_job
+        t_comp = train_time[i]
+        if t_comm > 0:
+            band_matrix = data_matrix_cassini[i] / t_comm
+        else:
+            band_matrix = np.zeros([pod_number, pod_number])
+        t_iter = int(np.ceil((t_comp + t_comm) * 4) * 250)
+        t_comp = int(np.ceil(t_comp * 4) * 250)
+        simulator.add_job(i, t_iter, t_comp, band_matrix)
 
+    avg_times = simulator.run_simulation()
+    max_time = np.max(avg_times)
+    for i in range(len(avg_times)):
+        data_sum_cassini += data_matrix_cassini[job_set[ji][i]] * (avg_times[i] / max_time)
+    ideal_matrix_cassini = max_time * conn_matrix * (len(pod_set[ji]) / pod_number) ** 2 / 1000
+    delta_cassini = ideal_matrix_cassini - data_sum_cassini
+    print(np.sum(data_sum_cassini) / np.sum(ideal_matrix_cassini), np.mean(avg_times))
