@@ -434,7 +434,7 @@ class CassiniSimulator:
 # Example usage
 if __name__ == "__main__":
     # Create a simulator with 24 servers (like in the paper)
-    simulator = CassiniSimulator(num_servers=4)
+    simulator = CassiniSimulator(num_servers=4, link_capacity=10)
 
     # Example traffic matrices (in reality these would come from your external source)
     # For VGG16 job: using servers 0-3 with ring allreduce pattern
